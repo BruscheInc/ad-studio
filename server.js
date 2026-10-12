@@ -4,6 +4,8 @@
  *   • Exposes an MCP server (Streamable HTTP) at  /mcp/<MCP_TOKEN>  with tools:
  *       generate_image  — text → image(s) with OpenAI's gpt-image model
  *       edit_image      — edit/extend/restyle one or more uploaded or generated images (keeps subjects with input_fidelity=high)
+ *       fetch_product   — read a Shopify product link (title, price, compare-at, sizes, image URLs)
+ *       import_image    — pull a product photo from a URL into Ad Studio for editing
  *       list_images     — recent uploads + generations
  *       get_image       — look at one image again
  *       usage           — how many images were made today / this month
@@ -203,6 +205,50 @@ function buildServer() {
       }
       return resultFor(ids, `Edited → ${ids.length} image${ids.length === 1 ? "" : "s"} (${MODEL}, fidelity ${input_fidelity}).`);
     } catch (e) { return { isError: true, content: [{ type: "text", text: e.message }] }; }
+  });
+
+
+  server.registerTool("fetch_product", {
+    title: "Fetch product from a store link",
+    description: "Read a Shopify product page URL (larkspurbaby.com / larkspurbabyoutlet.com) and return its title, price, compare-at price, sizes, a short description, and image URLs. Then pass an image URL to import_image to bring the photo into Ad Studio for editing.",
+    inputSchema: { url: z.string().url().describe("Product page URL, e.g. https://larkspurbabyoutlet.com/products/zip-footie-in-deep-mauve-bb11") },
+  }, async ({ url }) => {
+    try {
+      const u = new URL(url); const m = u.pathname.match(/\/products\/([^\/?#]+)/);
+      if (!m) return { isError: true, content: [{ type: "text", text: "That isn't a product URL (expected /products/<handle>)." }] };
+      const r = await fetch(`${u.origin}/products/${m[1]}.json`, { headers: { Accept: "application/json" } });
+      if (!r.ok) return { isError: true, content: [{ type: "text", text: `Store returned HTTP ${r.status} for ${u.origin}/products/${m[1]}.json` }] };
+      const p = (await r.json()).product;
+      const v0 = (p.variants || [])[0] || {};
+      const desc = String(p.body_html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 600);
+      const out = {
+        title: p.title, handle: p.handle, product_type: p.product_type, vendor: p.vendor, store: u.hostname,
+        price: v0.price, compare_at_price: v0.compare_at_price,
+        variants: (p.variants || []).map((v) => ({ title: v.title, price: v.price, compare_at_price: v.compare_at_price, available: v.available })),
+        tags: p.tags, description: desc,
+        images: (p.images || []).map((i) => ({ src: i.src.split("?")[0], width: i.width, height: i.height, alt: i.alt })),
+        url: `${u.origin}/products/${p.handle}`,
+      };
+      return { content: [{ type: "text", text: JSON.stringify(out, null, 2) }] };
+    } catch (e) { return { isError: true, content: [{ type: "text", text: `Couldn't read that product: ${e.message}` }] }; }
+  });
+
+  server.registerTool("import_image", {
+    title: "Import an image from a URL",
+    description: "Download an image from a public URL (e.g. a Shopify product photo from fetch_product) into Ad Studio so it can be used with edit_image. Returns the new image id and a preview.",
+    inputSchema: { url: z.string().url(), title: z.string().max(120).optional() },
+  }, async ({ url, title }) => {
+    try {
+      const r = await fetch(url, { headers: { Accept: "image/*" } });
+      if (!r.ok) return { isError: true, content: [{ type: "text", text: `HTTP ${r.status} fetching the image.` }] };
+      const mime = (r.headers.get("content-type") || "").split(";")[0].trim();
+      if (!/^image\/(png|jpeg|webp)$/.test(mime)) return { isError: true, content: [{ type: "text", text: `Not a PNG/JPEG/WebP image (got ${mime || "unknown"}).` }] };
+      const bytes = Buffer.from(await r.arrayBuffer());
+      if (bytes.length > 30 * 1024 * 1024) return { isError: true, content: [{ type: "text", text: "Image is over 30 MB." }] };
+      const dm = await dims(bytes);
+      const id = await saveImage({ kind: "upload", title: title || decodeURIComponent(url.split("/").pop().split("?")[0]).slice(0, 120), mime, bytes, ...dm, meta: { source_url: url } });
+      return resultFor([id], `Imported ${dm.width || "?"}×${dm.height || "?"} ${mime}.`);
+    } catch (e) { return { isError: true, content: [{ type: "text", text: `Import failed: ${e.message}` }] }; }
   });
 
   server.registerTool("list_images", {
