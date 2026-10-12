@@ -6,6 +6,7 @@
  *       edit_image      — edit/extend/restyle one or more uploaded or generated images (keeps subjects with input_fidelity=high)
  *       fetch_product   — read a Shopify product link (title, price, compare-at, sizes, image URLs)
  *       import_image    — pull a product photo from a URL into Ad Studio for editing
+ *       make_formats    — 1:1 / 4:5 / 9:16 from an approved image, no generation cost
  *       list_images     — recent uploads + generations
  *       get_image       — look at one image again
  *       usage           — how many images were made today / this month
@@ -70,8 +71,8 @@ async function listImages(limit = 24, kind = null) {
   return [...mem.values()].filter((r) => !kind || r.kind === kind).sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, limit).map((r) => ({ ...r, bytes: undefined, bytes_len: r.bytes.length }));
 }
 async function countSince(iso) {
-  if (pool) return Number((await db(`SELECT count(*) FROM ad_images WHERE kind IN ('generated','edited') AND created_at >= $1`, [iso])).rows[0].count);
-  return [...mem.values()].filter((r) => r.kind !== "upload" && r.created_at >= iso).length;
+  if (pool) return Number((await db(`SELECT count(*) FROM ad_images WHERE kind IN ('generated','edited') AND coalesce(model,'') <> 'format' AND created_at >= $1`, [iso])).rows[0].count);
+  return [...mem.values()].filter((r) => r.kind !== "upload" && r.model !== "format" && r.created_at >= iso).length;
 }
 const imageUrl = (id, ext) => `${PUBLIC_URL || ""}/img/${id}.${ext || "png"}`;
 const extOf = (mime) => (mime === "image/jpeg" ? "jpg" : mime === "image/webp" ? "webp" : "png");
@@ -92,6 +93,45 @@ async function dims(bytes) {
   try { if (!Jimp) Jimp = (await import("jimp")).Jimp; const im = await Jimp.read(bytes); return { width: im.bitmap.width, height: im.bitmap.height }; } catch { return {}; }
 }
 
+/* ---------------- Formats without spending a generation: pad/crop an approved image to 1:1, 4:5 and 9:16.
+ * Padding mirrors the image's own edge, blurs it and fades it in, which reads as "more blanket" on bedding scenes. ---- */
+async function toFormat(bytes, W, H) {
+  if (!Jimp) Jimp = (await import("jimp")).Jimp;
+  const src = await Jimp.read(bytes);
+  const sw = src.bitmap.width, sh = src.bitmap.height;
+  const srcRatio = sw / sh, dstRatio = W / H;
+  if (Math.abs(srcRatio - dstRatio) < 0.02) { src.resize({ w: W, h: H }); return src.getBuffer("image/png"); }
+  const out = new Jimp({ width: W, height: H, color: 0xffffffff });
+  if (srcRatio < dstRatio && srcRatio / dstRatio > 0.8) {
+    // Source is a little taller than the target (e.g. 2:3 → 4:5): centre-crop the height, lose nothing important.
+    const fitted = src.clone().resize({ w: W, h: Math.round(W / srcRatio) });
+    const y = Math.round((fitted.bitmap.height - H) / 2);
+    out.composite(fitted.crop({ x: 0, y, w: W, h: H }), 0, 0);
+    return out.getBuffer("image/png");
+  }
+  if (srcRatio > dstRatio) {
+    // Source is wider than the target (1:1 → 4:5 / 9:16, 2:3 → 9:16): fit the width, pad top and bottom.
+    // The padding is a thin outer strip of the image, stretched and heavily blurred — a soft continuation of the
+    // bedding, with no mirrored baby or text in it.
+    const h = Math.round(W / srcRatio); const fitted = src.clone().resize({ w: W, h });
+    const padTop = Math.floor((H - h) / 2), padBot = H - h - padTop;
+    const strip = Math.max(6, Math.round(h * 0.04));
+    const blurR = Math.max(10, Math.round(Math.max(padTop, padBot) / 6));
+    if (padTop > 0) { const t = fitted.clone().crop({ x: 0, y: 0, w: W, h: strip }).resize({ w: W, h: padTop + blurR * 2 }).blur(blurR); out.composite(t, 0, -blurR); }
+    if (padBot > 0) { const b = fitted.clone().crop({ x: 0, y: h - strip, w: W, h: strip }).resize({ w: W, h: padBot + blurR * 2 }).blur(blurR); out.composite(b, 0, padTop + h - blurR); }
+    out.composite(fitted, 0, padTop);
+  } else {
+    // Source much taller than the target: fit the height, pad left and right the same way.
+    const w = Math.round(H * srcRatio); const fitted = src.clone().resize({ w, h: H });
+    const padL = Math.floor((W - w) / 2), padR = W - w - padL;
+    const strip = Math.max(6, Math.round(w * 0.04));
+    const blurR = Math.max(10, Math.round(Math.max(padL, padR) / 6));
+    if (padL > 0) { const l = fitted.clone().crop({ x: 0, y: 0, w: strip, h: H }).resize({ w: padL + blurR * 2, h: H }).blur(blurR); out.composite(l, -blurR, 0); }
+    if (padR > 0) { const r = fitted.clone().crop({ x: w - strip, y: 0, w: strip, h: H }).resize({ w: padR + blurR * 2, h: H }).blur(blurR); out.composite(r, padL + w - blurR, 0); }
+    out.composite(fitted, padL, 0);
+  }
+  return out.getBuffer("image/png");
+}
 /* ---------------- OpenAI ---------------- */
 async function openaiGenerate({ prompt, size, quality, n, background, outputFormat }) {
   const body = { model: MODEL, prompt, size, quality, n, output_format: outputFormat || "png", moderation: "low" };
@@ -251,6 +291,24 @@ function buildServer() {
     } catch (e) { return { isError: true, content: [{ type: "text", text: `Import failed: ${e.message}` }] }; }
   });
 
+  server.registerTool("make_formats", {
+    title: "Make ad formats (free)",
+    description: "Finish an approved ad as a delivery size WITHOUT any AI generation or cost. Workflow: approve the 1:1 first; then generate the SAME ad once at 1024x1536 (same photo, same copy, subject and text inside the middle 80%); then call this on that portrait image to get the 1080x1920 story (9:16) — it adds a soft blurred continuation of the image's own edge top and bottom, never a mirrored copy. Do not ask the model to extend or re-crop an image; use this instead.",
+    inputSchema: { id: z.string().describe("Id of the approved image (usually a 1:1 or 1024×1536 edit)."), formats: z.array(z.enum(["1:1", "4:5", "9:16"])).default(["9:16"]) },
+  }, async ({ id, formats }) => {
+    try {
+      const r = await getImage(id); if (!r) throw new Error(`No image with id ${id}.`);
+      const sizes = { "1:1": [1080, 1080], "4:5": [1080, 1350], "9:16": [1080, 1920] };
+      const ids = [];
+      for (const f of formats) {
+        const [W, H] = sizes[f];
+        const bytes = await toFormat(r.bytes, W, H);
+        ids.push(await saveImage({ kind: "edited", title: `${r.title || id} — ${f}`, prompt: null, model: "format", size: `${W}x${H}`, quality: null, mime: "image/png", bytes, width: W, height: H, parents: [id], meta: { format: f, source: id } }));
+      }
+      return resultFor(ids, `Formats from ${id}: ${formats.join(", ")} (no generation cost).`);
+    } catch (e) { return { isError: true, content: [{ type: "text", text: e.message }] }; }
+  });
+
   server.registerTool("list_images", {
     title: "List images",
     description: "Recent images in Ad Studio: uploads (photos the user added on the Ad Studio page), generations and edits. Returns ids, titles, prompts and URLs — no pixels. Use get_image to look at one.",
@@ -280,7 +338,7 @@ function buildServer() {
     const month = new Date(Date.now() - 30 * 864e5);
     const [d, m] = [await countSince(today.toISOString()), await countSince(month.toISOString())];
     const rows = await listImages(200);
-    const est = rows.filter((r) => r.kind !== "upload" && new Date(r.created_at) >= month).reduce((s, r) => s + costHint(r.size, r.quality), 0);
+    const est = rows.filter((r) => r.kind !== "upload" && r.model !== "format" && new Date(r.created_at) >= month).reduce((s, r) => s + costHint(r.size, r.quality), 0);
     return { content: [{ type: "text", text: `Today: ${d} / ${MAX_PER_DAY} images. Last 30 days: ${m} images ≈ $${est.toFixed(2)} (list-price estimate; see platform.openai.com → Usage for the real number). Model: ${MODEL}.` }] };
   });
 
