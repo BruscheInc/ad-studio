@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ad Studio</title>
+<style>
+  :root{--bg:#f6f4f0;--panel:#fff;--ink:#23222a;--muted:#6f6c78;--line:#e4e0d8;--accent:#2451c8}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif}
+  header{display:flex;align-items:center;gap:14px;padding:18px 28px;border-bottom:1px solid var(--line);background:var(--panel)}
+  header h1{font-size:18px;margin:0}header .sub{color:var(--muted);font-size:13px}
+  main{max-width:1180px;margin:0 auto;padding:22px 28px 60px}
+  .drop{border:2px dashed #c9c3b8;border-radius:14px;padding:28px;text-align:center;background:var(--panel);color:var(--muted);cursor:pointer;transition:.15s}
+  .drop.on{border-color:var(--accent);background:#eef2ff;color:var(--accent)}
+  .drop b{color:var(--ink)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;margin-top:22px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .card img{display:block;width:100%;aspect-ratio:1/1;object-fit:cover;background:#eee}
+  .card .m{padding:10px 12px;font-size:12.5px}
+  .card .t{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card .p{color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-top:2px}
+  .card .r{display:flex;gap:8px;align-items:center;margin-top:8px}
+  .chip{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;background:#eee;color:var(--muted)}
+  .chip.generated{background:#e8f1ff;color:#2451c8}.chip.edited{background:#eaf7ee;color:#157a3a}.chip.upload{background:#fff3e0;color:#9a5b00}
+  code.id{font-size:12px;background:#f1efe9;padding:2px 6px;border-radius:6px;cursor:pointer}
+  a.dl{margin-left:auto;font-size:12.5px;color:var(--accent);text-decoration:none;font-weight:600}
+  .x{border:none;background:none;color:#b33;cursor:pointer;font-size:12px}
+  h2{font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:26px 0 0}
+  .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:10px;font-size:13.5px;opacity:0;transition:.2s}
+  .toast.on{opacity:1}
+</style>
+</head>
+<body>
+<header><div><h1>Ad Studio</h1><div class="sub">Upload photos here so Claude can edit them · everything Claude generates shows up below</div></div></header>
+<main>
+  <div class="drop" id="drop"><b>Drop photos here</b> or click to choose — PNG, JPEG or WebP. Each one gets an <b>id</b> you (or Claude) can refer to.<input type="file" id="file" accept="image/png,image/jpeg,image/webp" multiple style="display:none"></div>
+  <h2>Library</h2>
+  <div class="grid" id="grid"></div>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+const KEY=new URLSearchParams(location.search).get("key")||"";
+const $=(i)=>document.getElementById(i);
+function toast(m){const t=$("toast");t.textContent=m;t.classList.add("on");setTimeout(()=>t.classList.remove("on"),2200);}
+async function load(){
+  const r=await fetch("/api/images?limit=80&key="+encodeURIComponent(KEY)); const d=await r.json();
+  $("grid").innerHTML=(d.images||[]).map(i=>`<div class="card">
+    <a href="/img/${i.id}" target="_blank"><img src="/thumb/${i.id}" alt="" loading="lazy"></a>
+    <div class="m"><div class="t">${esc(i.title||i.prompt||i.kind)}</div><div class="p">${esc(i.prompt||"")}</div>
+    <div class="r"><span class="chip ${i.kind}">${i.kind}</span><code class="id" title="Click to copy the id" onclick="navigator.clipboard.writeText('${i.id}');toast('Copied ${i.id}')">${i.id}</code><span style="color:var(--muted)">${i.width||"?"}×${i.height||"?"}</span><a class="dl" href="/img/${i.id}" download>Download</a><button class="x" title="Delete" onclick="del('${i.id}')">✕</button></div></div></div>`).join("")||'<div style="color:var(--muted)">Nothing here yet.</div>';
+}
+function esc(s){return String(s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+async function del(id){ if(!confirm("Delete this image?"))return; await fetch("/api/images/"+id+"?key="+encodeURIComponent(KEY),{method:"DELETE"}); load(); }
+async function upload(files){
+  for(const f of files){
+    toast("Uploading "+f.name+"…");
+    const r=await fetch("/api/upload?key="+encodeURIComponent(KEY)+"&title="+encodeURIComponent(f.name),{method:"POST",headers:{"Content-Type":f.type},body:f});
+    const d=await r.json(); if(d.error){toast(d.error);continue;} toast("Uploaded — id "+d.id);
+  }
+  load();
+}
+const drop=$("drop"); drop.onclick=()=>$("file").click(); $("file").onchange=(e)=>upload(e.target.files);
+drop.ondragover=(e)=>{e.preventDefault();drop.classList.add("on");}; drop.ondragleave=()=>drop.classList.remove("on");
+drop.ondrop=(e)=>{e.preventDefault();drop.classList.remove("on");upload(e.dataTransfer.files);};
+load(); setInterval(load,15000);
+</script>
+</body>
+</html>
