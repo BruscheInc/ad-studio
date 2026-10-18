@@ -1,4 +1,4 @@
-/* Ad Studio v1.0 — a small image-generation connector for Claude.
+/* Ad Studio v1.3 — a small image-generation connector for Claude.
  *
  * What it does
  *   • Exposes an MCP server (Streamable HTTP) at  /mcp/<MCP_TOKEN>  with tools:
@@ -7,6 +7,7 @@
  *       fetch_product   — read a Shopify product link (title, price, compare-at, sizes, image URLs)
  *       import_image    — pull a product photo from a URL into Ad Studio for editing
  *       make_formats    — 1:1 / 4:5 / 9:16 from an approved image, no generation cost
+ *       enhance         — upscale ×2/×4 + clarity + sharpen + grain for ad delivery, no generation cost (v1.3)
  *       list_images     — recent uploads + generations
  *       get_image       — look at one image again
  *       usage           — how many images were made today / this month
@@ -20,6 +21,8 @@
  *   DATABASE_URL          Postgres (Railway: ${{Postgres.DATABASE_URL}})
  *   PUBLIC_URL            https://<host>  (Railway: https://${{RAILWAY_PUBLIC_DOMAIN}})
  *   MAX_IMAGES_PER_DAY    default 80 — stops a runaway loop from burning credits
+ *   REPLICATE_API_TOKEN   optional — turns on AI upscaling (Real-ESRGAN) inside the enhance tool
+ *   REPLICATE_UPSCALE_MODEL optional — default nightmareai/real-esrgan
  */
 const express = require("express");
 const crypto = require("crypto");
@@ -27,6 +30,7 @@ const { Pool } = require("pg");
 const { z } = require("zod");
 const { McpServer } = require("@modelcontextprotocol/sdk/server/mcp.js");
 const { StreamableHTTPServerTransport } = require("@modelcontextprotocol/sdk/server/streamableHttp.js");
+const { enhance, hasAIUpscaler } = require("./enhance.js");
 
 const VERSION = require("./package.json").version;
 const PORT = process.env.PORT || 8080;
@@ -71,8 +75,8 @@ async function listImages(limit = 24, kind = null) {
   return [...mem.values()].filter((r) => !kind || r.kind === kind).sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, limit).map((r) => ({ ...r, bytes: undefined, bytes_len: r.bytes.length }));
 }
 async function countSince(iso) {
-  if (pool) return Number((await db(`SELECT count(*) FROM ad_images WHERE kind IN ('generated','edited') AND coalesce(model,'') <> 'format' AND created_at >= $1`, [iso])).rows[0].count);
-  return [...mem.values()].filter((r) => r.kind !== "upload" && r.model !== "format" && r.created_at >= iso).length;
+  if (pool) return Number((await db(`SELECT count(*) FROM ad_images WHERE kind IN ('generated','edited') AND coalesce(model,'') NOT IN ('format','enhance') AND created_at >= $1`, [iso])).rows[0].count);
+  return [...mem.values()].filter((r) => r.kind !== "upload" && r.model !== "format" && r.model !== "enhance" && r.created_at >= iso).length;
 }
 const imageUrl = (id, ext) => `${PUBLIC_URL || ""}/img/${id}.${ext || "png"}`;
 const extOf = (mime) => (mime === "image/jpeg" ? "jpg" : mime === "image/webp" ? "webp" : "png");
@@ -309,6 +313,30 @@ function buildServer() {
     } catch (e) { return { isError: true, content: [{ type: "text", text: e.message }] }; }
   });
 
+  server.registerTool("enhance", {
+    title: "Enhance for ads (upscale + clarity + grain)",
+    description: `Finish an approved image for delivery WITHOUT any AI generation cost: upscales ×2 (or ×4), adds local contrast so it doesn't look flat, sharpens edges without halos, and lays fine photographic grain over smooth AI surfaces. ${hasAIUpscaler() ? "An AI upscaler (Replicate Real-ESRGAN) is configured and recovers real detail." : "Upscaling is a clean Lanczos resample (set REPLICATE_API_TOKEN on Railway to enable AI detail recovery)."} Use this as the LAST step on the picked image — e.g. a 1024×1024 edit becomes a crisp 2048×2048 JPEG ready for Meta. Run make_formats BEFORE enhance if you need 9:16.`,
+    inputSchema: {
+      id: z.string().describe("Id of the approved image."),
+      scale: z.union([z.literal(2), z.literal(4)]).default(2).describe("2 = double (1024→2048, recommended), 4 = quadruple (large files)."),
+      upscaler: z.enum(["auto", "ai", "resample"]).default("auto").describe("auto = AI when configured, else resample."),
+      clarity: z.number().min(0).max(2).default(1).describe("Local contrast / 'pop'. 0 off, 1 default, 2 strong."),
+      sharpen: z.number().min(0).max(2).default(1).describe("Edge sharpening. 0 off, 1 default, 2 strong."),
+      grain: z.number().min(0).max(2).default(1).describe("Fine film grain. 0 off, 1 default, 2 strong."),
+      contrast: z.number().min(0.5).max(2).default(1.08).describe("Global contrast; 1 = unchanged."),
+      saturation: z.number().min(0).max(2).default(1.04).describe("Colour saturation; 1 = unchanged."),
+      format: z.enum(["jpeg", "png"]).default("jpeg").describe("jpeg (quality 93, small, what Meta wants) or png (lossless, large)."),
+      title: z.string().max(120).optional(),
+    },
+  }, async ({ id, scale, upscaler, clarity, sharpen, grain, contrast, saturation, format, title }) => {
+    try {
+      const r = await getImage(id); if (!r) throw new Error(`No image with id ${id}.`);
+      const out = await enhance(r.bytes, { scale, upscaler, clarity, sharpen, grain, contrast, saturation, format, publicUrl: imageUrl(id, extOf(r.mime)) });
+      const nid = await saveImage({ kind: "edited", title: title || `${r.title || id} — enhanced ×${scale}`, prompt: null, model: "enhance", size: `${out.width}x${out.height}`, quality: null, mime: out.mime, bytes: out.bytes, width: out.width, height: out.height, parents: [id], meta: { source: id, notes: out.notes, scale, upscaler } });
+      return resultFor([nid], `Enhanced ${id} → ${out.width}×${out.height} (${out.notes.join(" · ")}; no generation cost).`);
+    } catch (e) { return { isError: true, content: [{ type: "text", text: e.message }] }; }
+  });
+
   server.registerTool("list_images", {
     title: "List images",
     description: "Recent images in Ad Studio: uploads (photos the user added on the Ad Studio page), generations and edits. Returns ids, titles, prompts and URLs — no pixels. Use get_image to look at one.",
@@ -338,7 +366,7 @@ function buildServer() {
     const month = new Date(Date.now() - 30 * 864e5);
     const [d, m] = [await countSince(today.toISOString()), await countSince(month.toISOString())];
     const rows = await listImages(200);
-    const est = rows.filter((r) => r.kind !== "upload" && r.model !== "format" && new Date(r.created_at) >= month).reduce((s, r) => s + costHint(r.size, r.quality), 0);
+    const est = rows.filter((r) => r.kind !== "upload" && r.model !== "format" && r.model !== "enhance" && new Date(r.created_at) >= month).reduce((s, r) => s + costHint(r.size, r.quality), 0);
     return { content: [{ type: "text", text: `Today: ${d} / ${MAX_PER_DAY} images. Last 30 days: ${m} images ≈ $${est.toFixed(2)} (list-price estimate; see platform.openai.com → Usage for the real number). Model: ${MODEL}.` }] };
   });
 
