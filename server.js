@@ -183,6 +183,23 @@ const costHint = (size, quality) => {        // rough list prices so the usage t
 
 /* ---------------- MCP ---------------- */
 const SIZES = ["1024x1024", "1536x1024", "1024x1536", "auto"];
+// gpt-image-2 and later take custom sizes up to ~4K (both sides divisible by 16, ratio 1:3–3:1, max 3840 px edge / 8.3 MP).
+const BIG = !supportsFidelity(MODEL);
+const BIG_SIZES = ["2048x2048", "2048x2560", "1440x2560", "2048x3072", "3072x2048"];
+const SIZE_HELP = BIG
+  ? `Output size. Default is high-res. Presets: 2048x2048 (square), 2048x2560 (4:5 Meta feed), 1440x2560 (9:16 Stories/Reels), 2048x3072 (portrait 2:3), 3072x2048 (landscape 3:2), or any WIDTHxHEIGHT with both sides divisible by 16, ratio between 1:3 and 3:1, longest side ≤ 3840. Also 1024x1024 / 1536x1024 / 1024x1536 for cheap drafts, or auto.`
+  : "Output size: 1024x1024, 1536x1024, 1024x1536 or auto (auto keeps the source's aspect).";
+function checkSize(size) {
+  if (SIZES.includes(size)) return size;
+  if (!BIG) throw new Error(`${MODEL} only supports ${SIZES.join(", ")}.`);
+  const m = /^(\d{3,4})x(\d{3,4})$/.exec(size || "");
+  if (!m) throw new Error(`Size must look like 2048x2048.`);
+  const w = +m[1], h = +m[2];
+  if (w % 16 || h % 16) throw new Error("Both sides must be divisible by 16.");
+  if (Math.max(w, h) > 3840 || w * h > 3840 * 2160) throw new Error("Too big: longest side ≤ 3840 and ≤ 8.3 MP.");
+  if (Math.max(w, h) / Math.min(w, h) > 3) throw new Error("Aspect ratio must be between 1:3 and 3:1.");
+  return size;
+}
 const QUALITIES = ["low", "medium", "high", "auto"];
 async function guardBudget(n) {
   const today = new Date(); today.setUTCHours(0, 0, 0, 0);
@@ -209,13 +226,14 @@ function buildServer() {
     description: `Create one or more images from a text prompt with OpenAI's ${MODEL}. Good for lifestyle ad scenes, product mock-ups, social creatives, and images that contain short text (check spelling in the result). Returns a preview of each image plus a URL to the full-resolution file. Sizes: 1024x1024 (square), 1536x1024 (landscape), 1024x1536 (portrait). Quality: low (cheap draft), medium (default), high (final). Costs real money per image (roughly $0.01–$0.25 each).`,
     inputSchema: {
       prompt: z.string().min(3).max(32000).describe("Full description: subject, scene, lighting, mood, colours, composition, any text to render (in quotes), and what to avoid."),
-      size: z.enum(SIZES).default("1024x1024"),
+      size: z.string().default(BIG ? "2048x2048" : "1024x1024").describe(SIZE_HELP),
       quality: z.enum(QUALITIES).default("medium"),
       n: z.number().int().min(1).max(4).default(1).describe("How many variations (1–4)."),
       background: z.enum(["opaque", "transparent"]).default("opaque").describe("transparent = PNG cut-out with no background (for compositing)."),
       title: z.string().max(120).optional().describe("Short label shown in the gallery, e.g. 'Outlet 70% off — pile of footies v2'."),
     },
   }, async ({ prompt, size, quality, n, background, title }) => {
+    size = checkSize(size);
     try {
       await guardBudget(n);
       const j = await openaiGenerate({ prompt, size, quality, n, background });
@@ -236,13 +254,14 @@ function buildServer() {
       prompt: z.string().min(3).max(32000).describe("What to change or create. Say explicitly what must stay identical (e.g. 'keep the baby and the purple footie exactly as they are; only replace the background')."),
       image_ids: z.array(z.string()).min(1).max(8).describe("Ids of the source image(s). The first is the main image; others are references (e.g. a product shot to place in the scene)."),
       mask_id: z.string().optional().describe("Id of an uploaded mask PNG (transparent = repaint, opaque = keep). Omit to let the model decide from the prompt."),
-      size: z.enum(SIZES).default("auto").describe("Output size; auto keeps the source's aspect."),
+      size: z.string().default("auto").describe(SIZE_HELP),
       quality: z.enum(QUALITIES).default("medium"),
       n: z.number().int().min(1).max(4).default(1),
       input_fidelity: z.enum(["high", "low"]).default("high").describe("high = preserve the source subject closely (faces, garments, logos). low = looser, more creative."),
       title: z.string().max(120).optional(),
     },
   }, async ({ prompt, image_ids, mask_id, size, quality, n, input_fidelity, title }) => {
+    size = checkSize(size);
     try {
       await guardBudget(n);
       const images = [];
