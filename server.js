@@ -145,16 +145,25 @@ async function openaiGenerate({ prompt, size, quality, n, background, outputForm
   if (!r.ok) throw new Error(friendlyError(r.status, j));
   return j;
 }
+// gpt-image-2 and later don't take input_fidelity (OpenAI: "omit this parameter") — they keep detail on their own.
+const supportsFidelity = (m) => !/^gpt-image-[2-9]/.test(m) && !/^chatgpt-image/.test(m);
 async function openaiEdit({ prompt, images, mask, size, quality, n, inputFidelity, outputFormat }) {
-  const fd = new FormData();
-  fd.append("model", MODEL); fd.append("prompt", prompt); fd.append("n", String(n)); fd.append("output_format", outputFormat || "png");
-  if (size && size !== "auto") fd.append("size", size);
-  if (quality && quality !== "auto") fd.append("quality", quality);
-  if (inputFidelity) fd.append("input_fidelity", inputFidelity);
-  for (const im of images) fd.append("image[]", new Blob([im.bytes], { type: im.mime }), `${im.id}.${extOf(im.mime)}`);
-  if (mask) fd.append("mask", new Blob([mask.bytes], { type: "image/png" }), "mask.png");
-  const r = await fetch(`${OPENAI_BASE}/images/edits`, { method: "POST", headers: { Authorization: `Bearer ${OPENAI_KEY}` }, body: fd });
-  const j = await r.json().catch(() => ({}));
+  const send = async (withFidelity) => {
+    const fd = new FormData();
+    fd.append("model", MODEL); fd.append("prompt", prompt); fd.append("n", String(n)); fd.append("output_format", outputFormat || "png");
+    if (size && size !== "auto") fd.append("size", size);
+    if (quality && quality !== "auto") fd.append("quality", quality);
+    if (withFidelity && inputFidelity) fd.append("input_fidelity", inputFidelity);
+    for (const im of images) fd.append("image[]", new Blob([im.bytes], { type: im.mime }), `${im.id}.${extOf(im.mime)}`);
+    if (mask) fd.append("mask", new Blob([mask.bytes], { type: "image/png" }), "mask.png");
+    const r = await fetch(`${OPENAI_BASE}/images/edits`, { method: "POST", headers: { Authorization: `Bearer ${OPENAI_KEY}` }, body: fd });
+    const j = await r.json().catch(() => ({}));
+    return { r, j };
+  };
+  const useFid = supportsFidelity(MODEL);
+  let { r, j } = await send(useFid);
+  // Safety net: if a model rejects input_fidelity, retry once without it.
+  if (!r.ok && useFid && /input_fidelity/i.test((j && j.error && j.error.message) || "")) ({ r, j } = await send(false));
   if (!r.ok) throw new Error(friendlyError(r.status, j));
   return j;
 }
@@ -247,7 +256,7 @@ function buildServer() {
         const dm = await dims(bytes);
         ids.push(await saveImage({ kind: "edited", title, prompt, model: MODEL, size, quality, mime: "image/png", bytes, ...dm, parents: image_ids, meta: { usage: j.usage || null, mask_id: mask_id || null, input_fidelity } }));
       }
-      return resultFor(ids, `Edited → ${ids.length} image${ids.length === 1 ? "" : "s"} (${MODEL}, fidelity ${input_fidelity}).`);
+      return resultFor(ids, `Edited → ${ids.length} image${ids.length === 1 ? "" : "s"} (${MODEL}${supportsFidelity(MODEL) ? `, fidelity ${input_fidelity}` : ""}).`);
     } catch (e) { return { isError: true, content: [{ type: "text", text: e.message }] }; }
   });
 
