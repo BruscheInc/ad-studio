@@ -141,6 +141,7 @@
     </select>
     <button class="btn" id="favBtn" title="Show favorites only">★ Favorites</button>
     <button class="btn" id="grpBtn" title="Group by product">Group by product</button>
+    <button class="btn" id="linkAll" title="Link every image that has no product yet, using its name">🔗 Auto-link products</button>
     <label class="sz">Size <input type="range" id="cell" min="140" max="320" step="10"></label>
   </div>
   <div class="folders" id="folders"></div>
@@ -382,6 +383,7 @@ document.addEventListener("change", (e) => {
 document.addEventListener("dblclick", (e) => { const el = e.target.closest("[data-rename]"); if (el) startRename(el.dataset.rename); });
 $("q").oninput = (e) => { S.q = e.target.value; renderSide("uploads"); renderSide("made"); };
 $("sort").onchange = (e) => { S.sort = e.target.value; store.set("sort", S.sort); render(); if (S.sort === "custom") toast("Drag images to arrange them"); };
+$("linkAll").onclick = async () => { const b = $("linkAll"); b.disabled = true; b.textContent = "Linking…"; try { const d = await post("/api/products/autolink", {}); toast(`Linked ${d.linked} of ${d.checked} unlinked image${d.checked === 1 ? "" : "s"}` + (d.missed.length ? ` · ${d.missed.length} didn't match a product name` : "")); } catch (e) { toast(e.message); } b.disabled = false; b.textContent = "🔗 Auto-link products"; load(true); };
 $("favBtn").onclick = () => { S.fav = !S.fav; store.set("fav", S.fav); render(); };
 $("grpBtn").onclick = () => { S.group = !S.group; store.set("group", S.group); render(); };
 $("cell").oninput = (e) => { S.cell = +e.target.value; store.set("cell", S.cell); document.documentElement.style.setProperty("--cell", S.cell + "px"); };

@@ -11,6 +11,9 @@ Env (set on Railway): OPENAI_API_KEY, MCP_TOKEN, DATABASE_URL, PUBLIC_URL, OPENA
 Optional: STORE_URL (default https://larkspurbaby.com) — store used for product search.
 Optional: REPLICATE_API_TOKEN — when set, `enhance` uses an AI upscaler (Real-ESRGAN on replicate.com, a few cents per image) that recovers real detail instead of a plain resample.
 
+## What's new in 1.6.1
+- Images link to their store product automatically: from the product shot they were made from, or from the product name in the image title (larkspur-baby-<Product-Name>-<date>). Existing images are linked once on startup; renaming re-checks; **🔗 Auto-link products** on the page and the `link_products` tool backfill on demand.
+
 ## What's new in 1.6
 - **Resize for placements** (free, no AI): Instagram post 1:1, Instagram portrait 4:5, Story / Reel 9:16, Facebook link 1.91:1, Pinterest 2:3, Square HD, or any custom size. *Crop to fill* with a draggable frame and zoom, or *Keep whole image* (extra space filled with a soft blur of the photo's own edges, exact preview). Copies are JPEGs named `<title>-<preset>-<W>x<H>` and land in the same folder. Warns when a size will be enlarged.
 - **Organize**: folders (drag cards onto a folder, rename/delete folders), favorites, search, sort (newest / oldest / name / custom order — drag to arrange), group by product, thumbnail size, bulk move / favorite / delete.

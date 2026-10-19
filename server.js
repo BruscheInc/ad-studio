@@ -75,6 +75,7 @@ async function saveImage(rec) {
   if (pool) await db(`INSERT INTO ad_images (id,kind,title,prompt,model,size,quality,mime,bytes,width,height,parents,meta,folder,product_url,product_title) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
     [id, rec.kind, rec.title || null, rec.prompt || null, rec.model || null, rec.size || null, rec.quality || null, rec.mime, rec.bytes, rec.width || null, rec.height || null, rec.parents || [], rec.meta || {}, rec.folder || null, rec.product_url || null, rec.product_title || null]);
   else mem.set(id, row);
+  if (!rec.product_url) setImmediate(() => autoLinkOne(id, rec.title, rec.parents).catch((e) => console.error("autolink:", e.message)));
   return id;
 }
 async function getImage(id) {
@@ -118,6 +119,7 @@ async function updateImages(ids, patch) {
   }
   let n = 0; for (const id of ids) { const r = mem.get(id); if (r) { Object.assign(r, p); n++; } } return n;
 }
+async function relinkAfterRename(id) { const r = await getImage(id); if (r && !r.product_url) await autoLinkOne(id, r.title, r.parents).catch(() => {}); }
 async function setOrder(ids) {
   ids = [...new Set((ids || []).map(String).filter(Boolean))].slice(0, 2000);
   if (pool) { if (ids.length) await db(`UPDATE ad_images AS a SET sort_order = o.ord FROM unnest($1::text[]) WITH ORDINALITY AS o(id, ord) WHERE a.id = o.id`, [ids]); }
@@ -145,8 +147,77 @@ async function resolveProduct(url) {
   const p = (await r.json()).product;
   return { title: p.title, url: `${u.origin}/products/${p.handle}`, image: p.image ? p.image.src : (p.images && p.images[0] && p.images[0].src) || null, price: (p.variants && p.variants[0] && p.variants[0].price) || null };
 }
+/* Auto-link: match an image to a store product from its parents or its name.
+ * Names follow larkspur-baby-<Product-Name>-<date>[-<size>] (or "Kids Long Sleeve Pajamas – Festive Trees (product shot)"),
+ * so comparing the words with the store catalog finds the product. */
+let catalog = { at: 0, list: [], error: null };
+async function loadCatalog(force) {
+  if (!force && catalog.list.length && Date.now() - catalog.at < 30 * 60e3) return catalog.list;
+  const list = [];
+  try {
+    for (let page = 1; page <= 20; page++) {
+      const r = await fetch(`${STORE_URL}/products.json?limit=250&page=${page}`, { headers: { Accept: "application/json" } });
+      if (!r.ok) throw new Error(`store catalog HTTP ${r.status}`);
+      const ps = (await r.json()).products || [];
+      for (const p of ps) list.push({ title: p.title, url: `${STORE_URL}/products/${p.handle}`, image: (p.images && p.images[0] && p.images[0].src) || null, price: (p.variants && p.variants[0] && p.variants[0].price) || null, toks: tokens(p.title) });
+      if (ps.length < 250) break;
+    }
+    catalog = { at: Date.now(), list, error: null };
+  } catch (e) { catalog.error = e.message; if (!catalog.list.length) throw new Error(`Couldn't read the store catalog (${e.message}).`); }
+  return catalog.list;
+}
+const STOP = new Set(["in", "the", "and", "a", "of", "kids", "kid", "product", "shot", "larkspur", "baby", "lb", "copy", "source", "enhanced", "format"]);
+function tokens(t) {
+  let s = String(t || "").toLowerCase().replace(/[’']/g, "").replace(/\(.*?\)/g, " ");
+  s = s.replace(/\b\d{4}-\d{2}-\d{2}\b[\s\S]*$/, "");                // drop the date and anything after it
+  return new Set(s.replace(/[^a-z0-9]+/g, " ").split(" ").filter((w) => w && !STOP.has(w) && !/^\d+$/.test(w)));
+}
+function matchProduct(title, list) {
+  const tt = tokens(title); if (tt.size < 2) return null;
+  const eq = list.filter((p) => p.toks.size === tt.size && [...p.toks].every((w) => tt.has(w)));
+  if (eq.length === 1) return eq[0];
+  if (eq.length > 1) return null;
+  // e.g. "Zipper Footie and Headband in Festive Trees" → the biggest product name fully inside the image name
+  const sub = list.filter((p) => p.toks.size >= 3 && [...p.toks].every((w) => tt.has(w)) && tt.size - p.toks.size <= 2)
+    .sort((a, b) => b.toks.size - a.toks.size);
+  if (sub.length && (sub.length === 1 || sub[0].toks.size > sub[1].toks.size)) return sub[0];
+  return null;
+}
+async function productOfParents(parents) {
+  for (const pid of parents || []) {
+    const r = pool ? (await db(`SELECT product_url, product_title FROM ad_images WHERE id=$1`, [pid])).rows[0] : mem.get(pid);
+    if (r && r.product_url) return { url: r.product_url, title: r.product_title };
+  }
+  return null;
+}
+async function autoLinkOne(id, title, parents) {
+  let hit = await productOfParents(parents);
+  if (!hit) { const list = await loadCatalog().catch(() => []); const m = matchProduct(title, list); if (m) hit = { url: m.url, title: m.title }; }
+  if (!hit) return false;
+  if (pool) await db(`UPDATE ad_images SET product_url=$2, product_title=$3 WHERE id=$1 AND product_url IS NULL`, [id, hit.url, hit.title]);
+  else { const r = mem.get(id); if (r && !r.product_url) Object.assign(r, { product_url: hit.url, product_title: hit.title }); }
+  return true;
+}
+/** Link every image that has no product yet. Oldest first, so edits can inherit from the product shot they came from. */
+async function autoLinkAll(ids) {
+  await loadCatalog(true);
+  const rows = pool
+    ? (await db(`SELECT id, title, parents FROM ad_images WHERE product_url IS NULL ${ids ? "AND id = ANY($1::text[])" : ""} ORDER BY created_at ASC`, ids ? [ids] : [])).rows
+    : [...mem.values()].filter((r) => !r.product_url && (!ids || ids.includes(r.id))).sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
+  let linked = 0; const missed = [];
+  for (const r of rows) { if (await autoLinkOne(r.id, r.title, r.parents)) linked++; else missed.push(r.id); }
+  return { checked: rows.length, linked, missed };
+}
 /** Search the store's products (Shopify predictive search, no key needed). */
 async function searchProducts(q) {
+  try {
+    const list = await loadCatalog(); const qt = [...tokens(q)];
+    if (qt.length) {
+      const hits = list.map((p) => ({ p, n: qt.filter((w) => p.toks.has(w)).length })).filter((x) => x.n === qt.length)
+        .sort((a, b) => a.p.toks.size - b.p.toks.size).slice(0, 12).map(({ p }) => ({ title: p.title, url: p.url, image: p.image, price: p.price }));
+      if (hits.length) return hits;
+    }
+  } catch {}
   const u = `${STORE_URL}/search/suggest.json?q=${encodeURIComponent(q)}&resources[type]=product&resources[limit]=10&resources[options][unavailable_products]=last`;
   let r;
   try { r = await fetch(u, { headers: { Accept: "application/json" } }); }
@@ -516,7 +587,17 @@ function buildServer() {
     if (favorite !== undefined) patch.favorite = favorite;
     if (title !== undefined) { if (ids.length !== 1) return { isError: true, content: [{ type: "text", text: "Rename one image at a time." }] }; patch.title = title; }
     const n = await updateImages(ids, patch);
+    if (patch.title) await relinkAfterRename(ids[0]);
     return { content: [{ type: "text", text: `Updated ${n} of ${ids.length} image${ids.length === 1 ? "" : "s"}.` }] };
+  });
+
+  server.registerTool("link_products", {
+    title: "Auto-link images to store products",
+    description: "Link images that have no product yet to their store product, using the product shot they were made from or the product name in the image title (larkspur-baby-<Product-Name>-<date>). Leave ids out to check every image. New images are linked automatically; use this to backfill or after renaming.",
+    inputSchema: { ids: z.array(z.string()).max(500).optional() },
+  }, async ({ ids }) => {
+    try { const r = await autoLinkAll(ids && ids.length ? ids : null); return { content: [{ type: "text", text: `Checked ${r.checked} unlinked image${r.checked === 1 ? "" : "s"}, linked ${r.linked}.${r.missed.length ? ` No product match for: ${r.missed.slice(0, 60).join(", ")}${r.missed.length > 60 ? " …" : ""}` : ""}` }] }; }
+    catch (e) { return { isError: true, content: [{ type: "text", text: e.message }] }; }
   });
 
   server.registerTool("delete_images", {
@@ -623,7 +704,8 @@ app.post("/api/images/delete", async (req, res) => {
   res.json({ ok: true, deleted: await deleteImages(ids) });
 });
 // v1.6 — organize + resize from the page
-app.patch("/api/images/:id", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); res.json({ ok: true, updated: await updateImages([req.params.id], req.body || {}) }); });
+app.patch("/api/images/:id", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); const n = await updateImages([req.params.id], req.body || {}); if ((req.body || {}).title) await relinkAfterRename(req.params.id); res.json({ ok: true, updated: n }); });
+app.post("/api/products/autolink", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); try { res.json({ ok: true, ...(await autoLinkAll((req.body || {}).ids)) }); } catch (e) { res.status(400).json({ error: e.message }); } });
 app.post("/api/images/update", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); const b = req.body || {}; const { ids, ...patch } = b; delete patch.title; res.json({ ok: true, updated: await updateImages(ids, patch) }); });
 app.post("/api/images/order", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); res.json({ ok: true, ordered: await setOrder((req.body || {}).ids) }); });
 app.post("/api/images/:id/resize", async (req, res) => {
@@ -662,6 +744,7 @@ app.get("/", (req, res) => {
 app.use(express.static(require("path").join(__dirname, "public"), { index: false }));
 
 migrate().then(() => app.listen(PORT, () => {
+  setTimeout(() => autoLinkAll().then((r) => console.log(`🔗 product auto-link: checked ${r.checked}, linked ${r.linked}`)).catch((e) => console.error("🔗 auto-link skipped:", e.message)), 3000);
   console.log(`🎨 Ad Studio v${VERSION} on :${PORT} · model ${MODEL} · daily cap ${MAX_PER_DAY} · db:${pool ? "set" : "none"}`);
   console.log(`🔌 Connector URL for Claude: ${PUBLIC_URL || "https://<your-domain>"}/mcp/<MCP_TOKEN>`);
 })).catch((e) => { console.error("boot failed:", e.message); process.exit(1); });
