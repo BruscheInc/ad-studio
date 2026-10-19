@@ -7,7 +7,7 @@
  *       fetch_product   — read a Shopify product link (title, price, compare-at, sizes, image URLs)
  *       import_image    — pull a product photo from a URL into Ad Studio for editing
  *       make_formats    — 1:1 / 4:5 / 9:16 from an approved image, no generation cost
- *       enhance         — upscale ×2/×4 + clarity + sharpen + grain for ad delivery, no generation cost (v1.3)
+ *       enhance         — upscale ×2/×4 + clarity + sharpen (+ optional grain) for ad delivery, no generation cost (v1.3)
  *       list_images     — recent uploads + generations
  *       get_image       — look at one image again
  *       usage           — how many images were made today / this month
@@ -322,7 +322,7 @@ function buildServer() {
       upscaler: z.enum(["auto", "ai", "resample"]).default("auto").describe("auto = AI when configured, else resample."),
       clarity: z.number().min(0).max(2).default(1).describe("Local contrast / 'pop'. 0 off, 1 default, 2 strong."),
       sharpen: z.number().min(0).max(2).default(1).describe("Edge sharpening. 0 off, 1 default, 2 strong."),
-      grain: z.number().min(0).max(2).default(1).describe("Fine film grain. 0 off, 1 default, 2 strong."),
+      grain: z.number().min(0).max(2).default(0).describe("Fine film grain. 0 off (default), 1 light, 2 strong."),
       contrast: z.number().min(0.5).max(2).default(1.08).describe("Global contrast; 1 = unchanged."),
       saturation: z.number().min(0).max(2).default(1.04).describe("Colour saturation; 1 = unchanged."),
       format: z.enum(["jpeg", "png"]).default("jpeg").describe("jpeg (quality 93, small, what Meta wants) or png (lossless, large)."),

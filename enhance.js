@@ -56,7 +56,7 @@ function grainBuffer(w, h, amount) {
  * @param {"auto"|"ai"|"resample"} opt.upscaler  auto = AI when a Replicate token exists, else resample
  * @param {number} opt.clarity  0–2  local-contrast strength (default 1)
  * @param {number} opt.sharpen  0–2  edge sharpening strength (default 1)
- * @param {number} opt.grain    0–2  grain strength (default 1)
+ * @param {number} opt.grain    0–2  grain strength (default 0)
  * @param {number} opt.contrast 0–2  global contrast (1 = unchanged; default 1.08)
  * @param {number} opt.saturation 0–2 (default 1.04)
  * @param {"jpeg"|"png"} opt.format
@@ -64,7 +64,7 @@ function grainBuffer(w, h, amount) {
  */
 async function enhance(bytes, opt = {}) {
   const scale = opt.scale === 4 ? 4 : 2;
-  const clarity = clamp(opt.clarity, 0, 2, 1), sharpenAmt = clamp(opt.sharpen, 0, 2, 1), grain = clamp(opt.grain, 0, 2, 1);
+  const clarity = clamp(opt.clarity, 0, 2, 1), sharpenAmt = clamp(opt.sharpen, 0, 2, 1), grain = clamp(opt.grain, 0, 2, 0);
   const contrast = clamp(opt.contrast, 0.5, 2, 1.08), saturation = clamp(opt.saturation, 0, 2, 1.04);
   const wantAI = opt.upscaler === "ai" || (opt.upscaler !== "resample" && !!REPLICATE_TOKEN);
   const meta = await sharp(bytes).metadata();
