@@ -543,7 +543,13 @@ function buildServer() {
     inputSchema: { id: z.string() },
   }, async ({ id }) => {
     const r = await getImage(id); if (!r) return { isError: true, content: [{ type: "text", text: `No image with id ${id}.` }] };
-    return resultFor([id], `${r.kind}${r.title ? ` — ${r.title}` : ""}${r.prompt ? `\nPrompt: ${r.prompt.slice(0, 400)}` : ""}`);
+    const m = r.meta || {};
+    const facts = [`${r.width || "?"}×${r.height || "?"} ${r.mime}, ${Math.round((r.bytes ? r.bytes.length : 0) / 1024)} KB`, r.model ? `made by: ${r.model}` : null,
+      (r.parents || []).length ? `made from: ${r.parents.join(", ")}` : null,
+      m.crop ? `crop box: x ${(+m.crop.x).toFixed(3)} y ${(+m.crop.y).toFixed(3)} w ${(+m.crop.w).toFixed(3)} h ${(+m.crop.h).toFixed(3)} (fractions of the source)` : null,
+      m.preset ? `preset: ${m.preset}, mode: ${m.mode}` : null, m.notes && m.notes.length ? `notes: ${m.notes.join("; ")}` : null,
+      r.product_title ? `product: ${r.product_title}` : null, r.folder ? `folder: ${r.folder}` : null].filter(Boolean).join("\n");
+    return resultFor([id], `${r.kind}${r.title ? ` — ${r.title}` : ""}\n${facts}${r.prompt ? `\nPrompt: ${r.prompt.slice(0, 400)}` : ""}`);
   });
 
   server.registerTool("resize_image", {
