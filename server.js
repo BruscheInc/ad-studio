@@ -235,8 +235,8 @@ async function resizeAndSave(r, opt) {
   const out = await resizeImage(r.bytes, opt, (b, W, H) => toFormat(b, W, H));
   const preset = PRESETS[opt.preset] && !(opt.width || opt.height) ? opt.preset : (PRESETS[opt.preset] ? opt.preset : "custom");
   const base = String(r.title || r.id).trim().replace(/\s+/g, "-");
-  const title = (opt.title && String(opt.title).trim()) || `${base}-${sizeSlug(preset, out.width, out.height)}`;
-  const nid = await saveImage({ kind: "edited", title: title.slice(0, 160), prompt: null, model: "resize", size: `${out.width}x${out.height}`, quality: null, mime: out.mime, bytes: out.bytes, width: out.width, height: out.height, parents: [r.id], folder: r.folder || null, product_url: r.product_url || null, product_title: r.product_title || null, meta: { source: r.id, preset, mode: out.mode, crop: opt.crop || null, position: opt.position || null, notes: out.notes } });
+  const title = (opt.title && String(opt.title).trim()) || `${base}-${sizeSlug(preset, out.width, out.height, out.full)}`;
+  const nid = await saveImage({ kind: "edited", title: title.slice(0, 160), prompt: null, model: "resize", size: `${out.width}x${out.height}`, quality: null, mime: out.mime, bytes: out.bytes, width: out.width, height: out.height, parents: [r.id], folder: r.folder || null, product_url: r.product_url || null, product_title: r.product_title || null, meta: { source: r.id, preset, mode: out.mode, full: out.full, crop: opt.crop || null, position: opt.position || null, notes: out.notes } });
   return { id: nid, ...out };
 }
 const imageUrl = (id, ext) => `${PUBLIC_URL || ""}/img/${id}.${ext || "png"}`;
@@ -562,13 +562,14 @@ function buildServer() {
       height: z.number().int().min(64).max(4096).optional().describe("Only with preset custom."),
       mode: z.enum(["crop", "extend"]).default("crop"),
       position: z.enum(["center", "top", "bottom", "left", "right"]).default("center").describe("Which part to keep when cropping."),
+      full_quality: z.boolean().default(false).describe("Keep every pixel the photo has (same shape as the preset, larger than its standard pixel size, up to 4096 px). Sharper; still fine to upload."),
       title: z.string().max(160).optional(),
     },
-  }, async ({ id, preset, width, height, mode, position, title }) => {
+  }, async ({ id, preset, width, height, mode, position, full_quality, title }) => {
     try {
       const r = await getImage(id); if (!r) throw new Error(`No image with id ${id}.`);
       if (preset === "custom" && !(width && height)) throw new Error("Custom size needs width and height.");
-      const out = await resizeAndSave(r, { preset, width: preset === "custom" ? width : undefined, height: preset === "custom" ? height : undefined, mode, position, title });
+      const out = await resizeAndSave(r, { preset, width: preset === "custom" ? width : undefined, height: preset === "custom" ? height : undefined, mode, position, full: full_quality, title });
       return resultFor([out.id], `Resized ${id} → ${out.width}×${out.height} (${mode}${out.notes.length ? "; " + out.notes.join("; ") : ""}; no generation cost).`);
     } catch (e) { return { isError: true, content: [{ type: "text", text: e.message }] }; }
   });

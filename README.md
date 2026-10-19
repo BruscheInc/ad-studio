@@ -11,6 +11,12 @@ Env (set on Railway): OPENAI_API_KEY, MCP_TOKEN, DATABASE_URL, PUBLIC_URL, OPENA
 Optional: STORE_URL (default https://larkspurbaby.com) — store used for product search.
 Optional: REPLICATE_API_TOKEN — when set, `enhance` uses an AI upscaler (Real-ESRGAN on replicate.com, a few cents per image) that recovers real detail instead of a plain resample.
 
+## What's new in 1.6.2
+- Resize has a **Full quality** option: same shape as the preset, but keeps every pixel the photo has (e.g. 1638×2048 instead of 1080×1350 from a 2048 square, up to 4096 px). `resize_image` takes `full_quality`.
+- The viewer shows the actual file instead of a compressed preview.
+- Fixed: the crop frame could lose its position when the photo hadn't finished loading.
+- `get_image` shows what an image was made from, its crop and its file size.
+
 ## What's new in 1.6.1
 - Images link to their store product automatically: from the product shot they were made from, or from the product name in the image title (larkspur-baby-<Product-Name>-<date>). Existing images are linked once on startup; renaming re-checks; **🔗 Auto-link products** on the page and the `link_products` tool backfill on demand.
 

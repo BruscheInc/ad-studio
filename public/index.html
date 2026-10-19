@@ -452,11 +452,13 @@ function closeModal() { document.querySelectorAll(".shade").forEach((s) => s.rem
 function openViewer(id) {
   closeModal();
   const i = byId(id); const list = S.shown[sideOf(i)]; const k = list.indexOf(id);
-  const m = modal(`<div class="modal-h"><h3>${esc(i.title || i.id)}</h3><span class="count" style="color:#aaa">${i.width}×${i.height} · ${i.id}</span>
+  const m = modal(`<div class="modal-h"><h3>${esc(i.title || i.id)}</h3><span class="count" style="color:#aaa">Actual file · ${i.width}×${i.height} · ${i.id}</span>
       <div class="x" style="display:flex;gap:6px">${i.product_url ? `<a class="btn" href="${esc(i.product_url)}" target="_blank" rel="noopener">🔗 Product</a>` : `<button class="btn" id="vL">🔗 Link product</button>`}<button class="btn" id="vN2">Rename</button><button class="btn" id="vR">Resize</button><a class="btn" href="/img/${id}?dl=1" download>Download</a><button class="btn" id="vX">✕</button></div></div>
-    <div class="stage">${k > 0 ? '<button class="nav l" id="vP">‹</button>' : ""}<img src="/thumb/${id}?s=1600" alt="">${k < list.length - 1 ? '<button class="nav r" id="vN">›</button>' : ""}</div>`, "viewer");
+    <div class="stage">${k > 0 ? '<button class="nav l" id="vP">‹</button>' : ""}<img id="vImg" src="/thumb/${id}?s=1600" alt="">${k < list.length - 1 ? '<button class="nav r" id="vN">›</button>' : ""}</div>`, "viewer");
   m.querySelector("#vX").onclick = closeModal; m.querySelector("#vR").onclick = () => openResize(id);
   m.querySelector("#vL") && (m.querySelector("#vL").onclick = () => openProduct([id]));
+  // show the actual file (not a compressed preview) as soon as it loads
+  const full = new Image(); full.onload = () => { const v = m.querySelector("#vImg"); if (v) v.src = full.src; }; full.src = "/img/" + id;
   m.querySelector("#vN2").onclick = async () => { const v = prompt("Rename image (this is also the download file name):", i.title || ""); if (v && v.trim() && v.trim() !== i.title) { await patch([id], { title: v.trim() }, "Renamed"); openViewer(id); } };
   const go = (d) => { const n = list[k + d]; if (n) openViewer(n); };
   m.querySelector("#vP") && (m.querySelector("#vP").onclick = () => go(-1)); m.querySelector("#vN") && (m.querySelector("#vN").onclick = () => go(1));
@@ -512,12 +514,14 @@ function openResize(id) {
   closeModal();
   const i = byId(id);
   const last = store.get("preset", "ig-portrait"); const p = PRESETS.find((x) => x.k === last) || PRESETS[1];
-  R = { id, i, preset: p.k, W: p.w, H: p.h, mode: "crop", zoom: 1, cx: 0.5, cy: 0.5, saved: [] };
+  R = { id, i, preset: p.k, W: p.w, H: p.h, mode: "crop", zoom: 1, cx: 0.5, cy: 0.5, saved: [], full: store.get("full", false) };
   const m = modal(`<div class="modal-h"><h3>Resize · ${esc(i.title || i.id)}</h3><button class="btn x" id="rX">✕</button></div>
     <div class="rsz"><div class="rstage" id="rStage"></div>
       <div class="rpanel">
         <div><h4>Size</h4><div class="presets" id="rPresets"></div>
           <div class="row" id="rCustom" style="margin-top:8px;display:none"><input type="number" id="rW" min="64" max="4096"> × <input type="number" id="rH" min="64" max="4096"> px</div></div>
+        <div><h4>Quality</h4><div class="seg" id="rQual"><button data-q="std">Standard size</button><button data-q="full">Full quality</button></div>
+          <div class="hint" id="rQHint" style="margin-top:6px"></div></div>
         <div><h4>Fit</h4><div class="seg" id="rMode"><button data-mode="crop">Crop to fill</button><button data-mode="extend">Keep whole image</button></div>
           <div class="hint" id="rHint" style="margin-top:6px"></div></div>
         <div id="rZoomRow"><h4>Zoom</h4><div class="row"><input type="range" id="rZoom" min="1" max="3" step="0.01" style="flex:1"><button class="btn" id="rCenter">Center</button></div></div>
@@ -528,6 +532,7 @@ function openResize(id) {
   m.querySelector("#rX").onclick = closeModal;
   m.querySelector("#rPresets").innerHTML = PRESETS.map((x) => `<button class="preset" data-p="${x.k}"><b>${x.l}</b><span>${x.s}${x.k === "custom" ? "" : ` · ${x.w}×${x.h}`}</span></button>`).join("");
   m.querySelector("#rPresets").onclick = (e) => { const b = e.target.closest("[data-p]"); if (!b) return; const x = PRESETS.find((p) => p.k === b.dataset.p); R.preset = x.k; if (x.k !== "custom") { R.W = x.w; R.H = x.h; } store.set("preset", x.k); R.zoom = 1; R.cx = R.cy = 0.5; paintResize(); };
+  m.querySelector("#rQual").onclick = (e) => { const b = e.target.closest("[data-q]"); if (!b) return; R.full = b.dataset.q === "full"; store.set("full", R.full); paintResize(); };
   m.querySelector("#rMode").onclick = (e) => { const b = e.target.closest("[data-mode]"); if (!b) return; R.mode = b.dataset.mode; paintResize(); };
   m.querySelector("#rW").onchange = (e) => { R.W = Math.max(64, Math.min(4096, +e.target.value || 64)); R.mode === "crop" ? layoutCrop() : paintResize(); };
   m.querySelector("#rH").onchange = (e) => { R.H = Math.max(64, Math.min(4096, +e.target.value || 64)); R.mode === "crop" ? layoutCrop() : paintResize(); };
@@ -541,6 +546,7 @@ function paintResize() {
   const m = document.querySelector(".modal"); if (!m || !R) return;
   m.querySelectorAll("[data-p]").forEach((b) => b.classList.toggle("on", b.dataset.p === R.preset));
   m.querySelectorAll("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === R.mode));
+  m.querySelectorAll("[data-q]").forEach((b) => b.classList.toggle("on", (b.dataset.q === "full") === !!R.full));
   m.querySelector("#rCustom").style.display = R.preset === "custom" ? "flex" : "none";
   m.querySelector("#rW").value = R.W; m.querySelector("#rH").value = R.H;
   m.querySelector("#rZoomRow").style.display = R.mode === "crop" ? "" : "none";
@@ -574,6 +580,8 @@ function paintResize() {
 function frameRect() {
   const img = document.querySelector("#rImg"); if (!img) return null;
   const dw = img.clientWidth, dh = img.clientHeight, a = R.W / R.H;
+  if (!dw || !dh) return null;                      // photo not laid out yet
+  if (!Number.isFinite(R.cx)) R.cx = 0.5; if (!Number.isFinite(R.cy)) R.cy = 0.5;
   let fw, fh; if (dw / dh > a) { fh = dh; fw = dh * a; } else { fw = dw; fh = dw / a; }
   fw /= R.zoom; fh /= R.zoom;
   const hx = fw / 2 / dw, hy = fh / 2 / dh;
@@ -585,16 +593,24 @@ function layoutCrop() {
   Object.assign(fr.style, { left: f.left + "px", top: f.top + "px", width: f.fw + "px", height: f.fh + "px" });
   qualityNote();
 }
+function outSize() {
+  if (!R.full || !R.i.width) return [R.W, R.H];
+  const cap = (w, h) => { const k = Math.min(1, 4096 / Math.max(w, h)); return [Math.round(w * k / 2) * 2, Math.round(h * k / 2) * 2]; };
+  if (R.mode === "crop") { const f = frameRect(); if (!f) return [R.W, R.H]; return cap((f.fw / f.dw) * R.i.width, (f.fh / f.dh) * R.i.height); }
+  const a = R.W / R.H; return R.i.width / R.i.height > a ? cap(R.i.width, R.i.width / a) : cap(R.i.height * a, R.i.height);
+}
 function qualityNote() {
-  const w = document.querySelector("#rWarn"); if (!w || !R || !R.i.width) return;
+  const w = document.querySelector("#rWarn"), q = document.querySelector("#rQHint"); if (!w || !R || !R.i.width) return;
+  const [ow, oh] = outSize();
+  if (q) q.textContent = R.full ? `Saves at ${ow}×${oh} — every pixel the photo has, same shape. Sharpest file; fine to upload anywhere.` : `Saves at the standard ${R.W}×${R.H}.`;
   let scale;
-  if (R.mode === "crop") { const f = frameRect(); if (!f) return; scale = R.W / ((f.fw / f.dw) * R.i.width); }
-  else scale = Math.min(R.W / R.i.width, R.H / R.i.height);
+  if (R.mode === "crop") { const f = frameRect(); if (!f) return; scale = ow / ((f.fw / f.dw) * R.i.width); }
+  else scale = Math.min(ow / R.i.width, oh / R.i.height);
   w.innerHTML = scale > 1.12 ? `<div class="warn">This will be enlarged about ${Math.round((scale - 1) * 100)}% to fit, so it may look a little soft. ${R.mode === "crop" ? "Zooming out helps." : ""}</div>` : "";
 }
 async function saveResize() {
   const btn = document.querySelector("#rSave"); btn.disabled = true; btn.textContent = "Saving…";
-  const body = { mode: R.mode };
+  const body = { mode: R.mode, full: !!R.full };
   if (R.preset === "custom") { body.preset = "custom"; body.width = R.W; body.height = R.H; } else body.preset = R.preset;
   if (R.mode === "crop") { const f = frameRect(); body.crop = { x: f.left / f.dw, y: f.top / f.dh, w: f.fw / f.dw, h: f.fh / f.dh }; }
   try {

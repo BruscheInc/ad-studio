@@ -40,15 +40,18 @@ function frameFor(sw, sh, W, H, gravity = "center", zoom = 1) {
  */
 async function resizeImage(bytes, opt, extendFn) {
   const p = PRESETS[opt.preset] || null;
-  const W = clampInt(Number(opt.width) || (p && p.w) || 1080, 64, 4096);
-  const H = clampInt(Number(opt.height) || (p && p.h) || 1080, 64, 4096);
+  let W = clampInt(Number(opt.width) || (p && p.w) || 1080, 64, 4096);
+  let H = clampInt(Number(opt.height) || (p && p.h) || 1080, 64, 4096);
   const mode = opt.mode === "extend" ? "extend" : "crop";
   const base = await sharp(bytes).rotate().toBuffer();            // apply phone EXIF rotation once
   const meta = await sharp(base).metadata();
   const sw = meta.width, sh = meta.height;
   const notes = [];
   let out;
+  // Full quality: keep every pixel the photo has instead of shrinking to the preset's pixel size (same shape).
+  const fit = (w, h) => { const k = Math.min(1, 4096 / Math.max(w, h)); return [Math.round(w * k / 2) * 2, Math.round(h * k / 2) * 2]; };
   if (mode === "extend") {
+    if (opt.full) { const a = W / H; [W, H] = sw / sh > a ? fit(sw, sw / a) : fit(sh * a, sh); }
     out = await sharp(await extendFn(base, W, H)).jpeg({ quality: 92, chromaSubsampling: "4:4:4" }).toBuffer();
   } else {
     let rect;
@@ -68,16 +71,17 @@ async function resizeImage(bytes, opt, extendFn) {
     } else {
       rect = frameFor(sw, sh, W, H, opt.position || "center", 1);
     }
+    if (opt.full) { [W, H] = fit(rect.width, rect.height); notes.push("full quality — every pixel of the crop kept"); }
     if (rect.width < W * 0.9) notes.push(`upscaled from ${rect.width}px wide — may look a little soft`);
     out = await sharp(base).extract(rect).resize(W, H, { fit: "fill", kernel: "lanczos3" })
       .jpeg({ quality: 92, chromaSubsampling: "4:4:4" }).toBuffer();
   }
-  return { bytes: out, width: W, height: H, mime: "image/jpeg", mode, notes };
+  return { bytes: out, width: W, height: H, mime: "image/jpeg", mode, notes, full: !!opt.full };
 }
 
 /** Short slug for the file name, e.g. "ig-portrait-1080x1350". */
-function sizeSlug(preset, W, H) {
-  return `${PRESETS[preset] ? preset : "custom"}-${W}x${H}`;
+function sizeSlug(preset, W, H, full) {
+  return `${PRESETS[preset] ? preset : "custom"}${full ? "-full" : ""}-${W}x${H}`;
 }
 
 module.exports = { PRESETS, resizeImage, sizeSlug };
