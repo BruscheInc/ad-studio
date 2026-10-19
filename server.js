@@ -385,6 +385,15 @@ function buildServer() {
     return resultFor([id], `${r.kind}${r.title ? ` — ${r.title}` : ""}${r.prompt ? `\nPrompt: ${r.prompt.slice(0, 400)}` : ""}`);
   });
 
+  server.registerTool("delete_images", {
+    title: "Delete images",
+    description: "Permanently delete images from Ad Studio by id (uploads or generations). Only use when the user asks to remove specific images. Their links stop working.",
+    inputSchema: { ids: z.array(z.string()).min(1).max(100) },
+  }, async ({ ids }) => {
+    const n = await deleteImages(ids);
+    return { content: [{ type: "text", text: `Deleted ${n} of ${ids.length} image${ids.length === 1 ? "" : "s"}.` }] };
+  });
+
   server.registerTool("usage", {
     title: "Usage & budget",
     description: "How many images were generated today and in the last 30 days, with a rough cost estimate, and the daily budget cap.",
@@ -443,8 +452,32 @@ app.post("/api/upload", express.raw({ type: ["image/png", "image/jpeg", "image/w
   const id = await saveImage({ kind: "upload", title: String(req.query.title || req.query.name || "upload").slice(0, 120), mime, bytes: req.body, ...dm });
   res.json({ ok: true, id, url: imageUrl(id, extOf(mime)), ...dm });
 });
-app.get("/api/images", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); res.json({ images: await listImages(Number(req.query.limit || 60)) }); });
-app.delete("/api/images/:id", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); if (pool) await db(`DELETE FROM ad_images WHERE id=$1`, [req.params.id]); else mem.delete(req.params.id); res.json({ ok: true }); });
+// ?side=uploads → only uploads; ?side=made → generations, edits, formats and enhanced copies. No side → everything.
+app.get("/api/images", async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: "bad key" });
+  const limit = Math.min(Number(req.query.limit || 60), 300);
+  const side = req.query.side;
+  let rows;
+  if (side === "uploads") rows = await listImages(limit, "upload");
+  else if (side === "made") {
+    if (pool) rows = (await db(`SELECT id, kind, title, prompt, model, size, quality, mime, width, height, parents, created_at, length(bytes) AS bytes_len FROM ad_images WHERE kind <> 'upload' ORDER BY created_at DESC LIMIT $1`, [limit])).rows;
+    else rows = (await listImages(100000)).filter((r) => r.kind !== "upload").slice(0, limit);
+  } else rows = await listImages(limit);
+  res.json({ images: rows });
+});
+async function deleteImages(ids) {
+  ids = [...new Set(ids.map(String).filter(Boolean))].slice(0, 500);
+  if (!ids.length) return 0;
+  if (pool) return (await db(`DELETE FROM ad_images WHERE id = ANY($1::text[])`, [ids])).rowCount;
+  let n = 0; for (const id of ids) if (mem.delete(id)) n++; return n;
+}
+app.delete("/api/images/:id", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); res.json({ ok: true, deleted: await deleteImages([req.params.id]) }); });
+// Bulk delete from the page: body { ids: [...] }
+app.post("/api/images/delete", async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: "bad key" });
+  const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids : [];
+  res.json({ ok: true, deleted: await deleteImages(ids) });
+});
 app.get("/api/version", (_q, r) => r.json({ version: VERSION, model: MODEL }));
 app.get("/health", (_q, r) => r.send("ok"));
 

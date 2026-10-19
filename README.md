@@ -1,4 +1,4 @@
-# Ad Studio v1.3
+# Ad Studio v1.5
 
 Image generation for Claude, powered by OpenAI's gpt-image model.
 
@@ -9,6 +9,11 @@ Tools Claude gets: fetch_product, import_image, generate_image, edit_image (keep
 
 Env (set on Railway): OPENAI_API_KEY, MCP_TOKEN, DATABASE_URL, PUBLIC_URL, OPENAI_IMAGE_MODEL (default gpt-image-1), MAX_IMAGES_PER_DAY (default 80).
 Optional: REPLICATE_API_TOKEN — when set, `enhance` uses an AI upscaler (Real-ESRGAN on replicate.com, a few cents per image) that recovers real detail instead of a plain resample.
+
+## What's new in 1.5
+- The page is split into two sides: **Uploaded** (left) and **Generated** (right — generations, edits, formats, enhanced copies). Each side loads its own list, so uploads never get pushed off by new generations.
+- Bigger **Delete** button on every image, plus checkboxes, **Select all** and **Delete selected** on each side.
+- New `delete_images` tool so Claude can remove images by id when asked.
 
 ## What's new in 1.3
 - `enhance` tool: the image model tops out at 1024 px on the short side, so a 2000×2000 photo always comes back at 1024×1024. `enhance` takes the approved result to 2048×2048 (or 4096), adds midtone clarity so it doesn't look flat, sharpens without halos. Grain is off by default (pass grain 1–2 to add it). No OpenAI cost; doesn't count against the daily cap.
