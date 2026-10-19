@@ -1,4 +1,4 @@
-/* Ad Studio v1.3 — a small image-generation connector for Claude.
+/* Ad Studio v1.6 — a small image-generation connector for Claude.
  *
  * What it does
  *   • Exposes an MCP server (Streamable HTTP) at  /mcp/<MCP_TOKEN>  with tools:
@@ -7,6 +7,8 @@
  *       fetch_product   — read a Shopify product link (title, price, compare-at, sizes, image URLs)
  *       import_image    — pull a product photo from a URL into Ad Studio for editing
  *       make_formats    — 1:1 / 4:5 / 9:16 from an approved image, no generation cost
+ *       resize_image    — Instagram post / portrait, Story / Reel and other placement sizes (crop or extend), no generation cost (v1.6)
+ *       organize_images — folders, favorites, rename (v1.6)
  *       enhance         — upscale ×2/×4 + clarity + sharpen (+ optional grain) for ad delivery, no generation cost (v1.3)
  *       list_images     — recent uploads + generations
  *       get_image       — look at one image again
@@ -31,6 +33,8 @@ const { z } = require("zod");
 const { McpServer } = require("@modelcontextprotocol/sdk/server/mcp.js");
 const { StreamableHTTPServerTransport } = require("@modelcontextprotocol/sdk/server/streamableHttp.js");
 const { enhance, hasAIUpscaler } = require("./enhance.js");
+const sharp = require("sharp");
+const { PRESETS, resizeImage, sizeSlug } = require("./social.js");
 
 const VERSION = require("./package.json").version;
 const PORT = process.env.PORT || 8080;
@@ -55,14 +59,21 @@ async function migrate() {
     mime TEXT NOT NULL, bytes BYTEA NOT NULL, width INT, height INT, parents TEXT[], meta JSONB,
     created_at TIMESTAMPTZ DEFAULT now())`);
   await db(`CREATE INDEX IF NOT EXISTS idx_ad_images_created ON ad_images(created_at DESC)`);
+  // v1.6 — organizing: folders, favorites, custom order
+  await db(`ALTER TABLE ad_images ADD COLUMN IF NOT EXISTS folder TEXT`);
+  await db(`ALTER TABLE ad_images ADD COLUMN IF NOT EXISTS favorite BOOLEAN DEFAULT false`);
+  await db(`ALTER TABLE ad_images ADD COLUMN IF NOT EXISTS sort_order DOUBLE PRECISION`);
+  await db(`ALTER TABLE ad_images ADD COLUMN IF NOT EXISTS product_url TEXT`);
+  await db(`ALTER TABLE ad_images ADD COLUMN IF NOT EXISTS product_title TEXT`);
+  await db(`CREATE TABLE IF NOT EXISTS ad_folders (name TEXT PRIMARY KEY, created_at TIMESTAMPTZ DEFAULT now())`);
   console.log("🗄️  Ad Studio schema ready");
 }
 const newId = () => crypto.randomBytes(6).toString("base64url");
 async function saveImage(rec) {
   const id = newId();
-  const row = { id, created_at: new Date().toISOString(), ...rec };
-  if (pool) await db(`INSERT INTO ad_images (id,kind,title,prompt,model,size,quality,mime,bytes,width,height,parents,meta) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-    [id, rec.kind, rec.title || null, rec.prompt || null, rec.model || null, rec.size || null, rec.quality || null, rec.mime, rec.bytes, rec.width || null, rec.height || null, rec.parents || [], rec.meta || {}]);
+  const row = { id, created_at: new Date().toISOString(), folder: null, favorite: false, sort_order: null, product_url: null, product_title: null, ...rec };
+  if (pool) await db(`INSERT INTO ad_images (id,kind,title,prompt,model,size,quality,mime,bytes,width,height,parents,meta,folder,product_url,product_title) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+    [id, rec.kind, rec.title || null, rec.prompt || null, rec.model || null, rec.size || null, rec.quality || null, rec.mime, rec.bytes, rec.width || null, rec.height || null, rec.parents || [], rec.meta || {}, rec.folder || null, rec.product_url || null, rec.product_title || null]);
   else mem.set(id, row);
   return id;
 }
@@ -71,12 +82,91 @@ async function getImage(id) {
   return mem.get(id) || null;
 }
 async function listImages(limit = 24, kind = null) {
-  if (pool) return (await db(`SELECT id, kind, title, prompt, model, size, quality, mime, width, height, parents, created_at, length(bytes) AS bytes_len FROM ad_images ${kind ? "WHERE kind=$2" : ""} ORDER BY created_at DESC LIMIT $1`, kind ? [limit, kind] : [limit])).rows;
+  if (pool) return (await db(`SELECT id, kind, title, prompt, model, size, quality, mime, width, height, parents, created_at, folder, favorite, sort_order, product_url, product_title, length(bytes) AS bytes_len FROM ad_images ${kind ? "WHERE kind=$2" : ""} ORDER BY created_at DESC LIMIT $1`, kind ? [limit, kind] : [limit])).rows;
   return [...mem.values()].filter((r) => !kind || r.kind === kind).sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, limit).map((r) => ({ ...r, bytes: undefined, bytes_len: r.bytes.length }));
 }
 async function countSince(iso) {
-  if (pool) return Number((await db(`SELECT count(*) FROM ad_images WHERE kind IN ('generated','edited') AND coalesce(model,'') NOT IN ('format','enhance') AND created_at >= $1`, [iso])).rows[0].count);
-  return [...mem.values()].filter((r) => r.kind !== "upload" && r.model !== "format" && r.model !== "enhance" && r.created_at >= iso).length;
+  if (pool) return Number((await db(`SELECT count(*) FROM ad_images WHERE kind IN ('generated','edited') AND coalesce(model,'') NOT IN ('format','enhance','resize') AND created_at >= $1`, [iso])).rows[0].count);
+  return [...mem.values()].filter((r) => r.kind !== "upload" && !["format", "enhance", "resize"].includes(r.model) && r.created_at >= iso).length;
+}
+/* ---------------- organizing (v1.6) ---------------- */
+const memFolders = new Set();
+const cleanFolder = (f) => (f == null || String(f).trim() === "" ? null : String(f).trim().slice(0, 60));
+async function ensureFolder(name) {
+  if (!name) return;
+  if (pool) await db(`INSERT INTO ad_folders (name) VALUES ($1) ON CONFLICT DO NOTHING`, [name]); else memFolders.add(name);
+}
+async function listFolders() {
+  if (pool) return (await db(`SELECT name FROM ad_folders UNION SELECT DISTINCT folder FROM ad_images WHERE folder IS NOT NULL ORDER BY 1`)).rows.map((r) => r.name);
+  return [...new Set([...memFolders, ...[...mem.values()].map((r) => r.folder).filter(Boolean)])].sort();
+}
+async function updateImages(ids, patch) {
+  ids = [...new Set((ids || []).map(String).filter(Boolean))].slice(0, 500);
+  if (!ids.length) return 0;
+  const p = {};
+  if ("title" in patch && String(patch.title || "").trim()) p.title = String(patch.title).trim().slice(0, 160);
+  if ("folder" in patch) { p.folder = cleanFolder(patch.folder); await ensureFolder(p.folder); }
+  if ("favorite" in patch) p.favorite = !!patch.favorite;
+  if ("product_url" in patch) {
+    p.product_url = patch.product_url ? String(patch.product_url).slice(0, 400) : null;
+    p.product_title = p.product_url ? (String(patch.product_title || "").trim().slice(0, 200) || null) : null;
+  }
+  const keys = Object.keys(p); if (!keys.length) return 0;
+  if (pool) {
+    const vals = [ids, ...keys.map((k) => p[k])];
+    return (await db(`UPDATE ad_images SET ${keys.map((k, i) => `${k}=$${i + 2}`).join(", ")} WHERE id = ANY($1::text[])`, vals)).rowCount;
+  }
+  let n = 0; for (const id of ids) { const r = mem.get(id); if (r) { Object.assign(r, p); n++; } } return n;
+}
+async function setOrder(ids) {
+  ids = [...new Set((ids || []).map(String).filter(Boolean))].slice(0, 2000);
+  if (pool) { if (ids.length) await db(`UPDATE ad_images AS a SET sort_order = o.ord FROM unnest($1::text[]) WITH ORDINALITY AS o(id, ord) WHERE a.id = o.id`, [ids]); }
+  else ids.forEach((id, i) => { const r = mem.get(id); if (r) r.sort_order = i + 1; });
+  return ids.length;
+}
+async function renameFolder(from, to) {
+  from = cleanFolder(from); to = cleanFolder(to); if (!from || !to) throw new Error("Folder names can't be empty.");
+  if (pool) { await ensureFolder(to); await db(`UPDATE ad_images SET folder=$2 WHERE folder=$1`, [from, to]); await db(`DELETE FROM ad_folders WHERE name=$1`, [from]); }
+  else { memFolders.delete(from); memFolders.add(to); for (const r of mem.values()) if (r.folder === from) r.folder = to; }
+}
+async function deleteFolder(name) {
+  name = cleanFolder(name); if (!name) return;
+  if (pool) { await db(`UPDATE ad_images SET folder=NULL WHERE folder=$1`, [name]); await db(`DELETE FROM ad_folders WHERE name=$1`, [name]); }
+  else { memFolders.delete(name); for (const r of mem.values()) if (r.folder === name) r.folder = null; }
+}
+/* ---------------- product links (v1.6) ---------------- */
+const STORE_URL = (process.env.STORE_URL || "https://larkspurbaby.com").replace(/\/$/, "");
+/** Resolve a product page URL to { title, url, image, price } using the store's public .json endpoint. */
+async function resolveProduct(url) {
+  const u = new URL(url); const m = u.pathname.match(/\/products\/([^\/?#]+)/);
+  if (!m) throw new Error("That isn't a product link (expected …/products/<name>).");
+  const r = await fetch(`${u.origin}/products/${m[1]}.json`, { headers: { Accept: "application/json" } });
+  if (!r.ok) throw new Error(`The store returned HTTP ${r.status} for that product.`);
+  const p = (await r.json()).product;
+  return { title: p.title, url: `${u.origin}/products/${p.handle}`, image: p.image ? p.image.src : (p.images && p.images[0] && p.images[0].src) || null, price: (p.variants && p.variants[0] && p.variants[0].price) || null };
+}
+/** Search the store's products (Shopify predictive search, no key needed). */
+async function searchProducts(q) {
+  const u = `${STORE_URL}/search/suggest.json?q=${encodeURIComponent(q)}&resources[type]=product&resources[limit]=10&resources[options][unavailable_products]=last`;
+  let r;
+  try { r = await fetch(u, { headers: { Accept: "application/json" } }); }
+  catch (e) { throw new Error(`Couldn't reach the store (${STORE_URL}). Paste the product link instead.`); }
+  if (!r.ok) throw new Error(`Store search returned HTTP ${r.status}.`);
+  const j = await r.json();
+  const list = (j.resources && j.resources.results && j.resources.results.products) || [];
+  return list.map((p) => ({
+    title: p.title, url: `${STORE_URL}${String(p.url || `/products/${p.handle}`).split("?")[0]}`,
+    image: p.image || (p.featured_image && p.featured_image.url) || null, price: p.price || null,
+  }));
+}
+/** Resize an image to a placement size and save the copy (same folder as the source). */
+async function resizeAndSave(r, opt) {
+  const out = await resizeImage(r.bytes, opt, (b, W, H) => toFormat(b, W, H));
+  const preset = PRESETS[opt.preset] && !(opt.width || opt.height) ? opt.preset : (PRESETS[opt.preset] ? opt.preset : "custom");
+  const base = String(r.title || r.id).trim().replace(/\s+/g, "-");
+  const title = (opt.title && String(opt.title).trim()) || `${base}-${sizeSlug(preset, out.width, out.height)}`;
+  const nid = await saveImage({ kind: "edited", title: title.slice(0, 160), prompt: null, model: "resize", size: `${out.width}x${out.height}`, quality: null, mime: out.mime, bytes: out.bytes, width: out.width, height: out.height, parents: [r.id], folder: r.folder || null, product_url: r.product_url || null, product_title: r.product_title || null, meta: { source: r.id, preset, mode: out.mode, crop: opt.crop || null, position: opt.position || null, notes: out.notes } });
+  return { id: nid, ...out };
 }
 const imageUrl = (id, ext) => `${PUBLIC_URL || ""}/img/${id}.${ext || "png"}`;
 const extOf = (mime) => (mime === "image/jpeg" ? "jpg" : mime === "image/webp" ? "webp" : "png");
@@ -372,7 +462,7 @@ function buildServer() {
   }, async ({ limit, kind }) => {
     const rows = await listImages(limit, kind || null);
     if (!rows.length) return { content: [{ type: "text", text: "No images yet. Upload photos at the Ad Studio page or call generate_image." }] };
-    const text = rows.map((r) => `${r.id}  [${r.kind}]  ${r.title || (r.prompt ? r.prompt.slice(0, 70) : "")}  ${r.width || "?"}×${r.height || "?"}  ${new Date(r.created_at).toISOString().slice(0, 16).replace("T", " ")}  ${imageUrl(r.id, extOf(r.mime))}`).join("\n");
+    const text = rows.map((r) => `${r.id}  [${r.kind}]${r.favorite ? " ★" : ""}${r.folder ? `  📁 ${r.folder}` : ""}${r.product_title ? `  🔗 ${r.product_title}` : ""}  ${r.title || (r.prompt ? r.prompt.slice(0, 70) : "")}  ${r.width || "?"}×${r.height || "?"}  ${new Date(r.created_at).toISOString().slice(0, 16).replace("T", " ")}  ${imageUrl(r.id, extOf(r.mime))}`).join("\n");
     return { content: [{ type: "text", text }] };
   });
 
@@ -383,6 +473,50 @@ function buildServer() {
   }, async ({ id }) => {
     const r = await getImage(id); if (!r) return { isError: true, content: [{ type: "text", text: `No image with id ${id}.` }] };
     return resultFor([id], `${r.kind}${r.title ? ` — ${r.title}` : ""}${r.prompt ? `\nPrompt: ${r.prompt.slice(0, 400)}` : ""}`);
+  });
+
+  server.registerTool("resize_image", {
+    title: "Resize for a placement (free)",
+    description: `Make a delivery-size copy of an image for a specific placement, with no AI generation and no cost. Presets: ${Object.entries(PRESETS).map(([k, v]) => `${k} = ${v.label} ${v.ratio} (${v.w}×${v.h})`).join("; ")}; or preset "custom" with width and height. mode "crop" fills the frame by cropping — position picks which part to keep (center/top/bottom/left/right). mode "extend" keeps the whole image and fills the extra space with a soft blurred continuation of its edges. The copy is saved as a JPEG in the same folder as the source, named <source title>-<preset>-<W>x<H> unless a title is given.`,
+    inputSchema: {
+      id: z.string().describe("Id of the image to resize."),
+      preset: z.enum([...Object.keys(PRESETS), "custom"]).default("ig-portrait"),
+      width: z.number().int().min(64).max(4096).optional().describe("Only with preset custom."),
+      height: z.number().int().min(64).max(4096).optional().describe("Only with preset custom."),
+      mode: z.enum(["crop", "extend"]).default("crop"),
+      position: z.enum(["center", "top", "bottom", "left", "right"]).default("center").describe("Which part to keep when cropping."),
+      title: z.string().max(160).optional(),
+    },
+  }, async ({ id, preset, width, height, mode, position, title }) => {
+    try {
+      const r = await getImage(id); if (!r) throw new Error(`No image with id ${id}.`);
+      if (preset === "custom" && !(width && height)) throw new Error("Custom size needs width and height.");
+      const out = await resizeAndSave(r, { preset, width: preset === "custom" ? width : undefined, height: preset === "custom" ? height : undefined, mode, position, title });
+      return resultFor([out.id], `Resized ${id} → ${out.width}×${out.height} (${mode}${out.notes.length ? "; " + out.notes.join("; ") : ""}; no generation cost).`);
+    } catch (e) { return { isError: true, content: [{ type: "text", text: e.message }] }; }
+  });
+
+  server.registerTool("organize_images", {
+    title: "Rename / file / favorite images",
+    description: "Organize images in Ad Studio: move them into a folder (folder: \"\" to unfile), mark or unmark them as favorites, link them to a store product (product_url), or rename one image (title, only with a single id). Use when the user asks to file, star, link or rename images.",
+    inputSchema: {
+      ids: z.array(z.string()).min(1).max(200),
+      folder: z.string().max(60).optional(),
+      favorite: z.boolean().optional(),
+      title: z.string().max(160).optional(),
+      product_url: z.string().optional().describe("Store product page to link these images to (larkspurbaby.com/products/…); \"\" removes the link."),
+    },
+  }, async ({ ids, folder, favorite, title, product_url }) => {
+    const patch = {};
+    if (product_url !== undefined) {
+      if (!product_url) patch.product_url = null;
+      else { try { const pr = await resolveProduct(product_url); patch.product_url = pr.url; patch.product_title = pr.title; } catch (e) { return { isError: true, content: [{ type: "text", text: e.message }] }; } }
+    }
+    if (folder !== undefined) patch.folder = folder;
+    if (favorite !== undefined) patch.favorite = favorite;
+    if (title !== undefined) { if (ids.length !== 1) return { isError: true, content: [{ type: "text", text: "Rename one image at a time." }] }; patch.title = title; }
+    const n = await updateImages(ids, patch);
+    return { content: [{ type: "text", text: `Updated ${n} of ${ids.length} image${ids.length === 1 ? "" : "s"}.` }] };
   });
 
   server.registerTool("delete_images", {
@@ -403,7 +537,7 @@ function buildServer() {
     const month = new Date(Date.now() - 30 * 864e5);
     const [d, m] = [await countSince(today.toISOString()), await countSince(month.toISOString())];
     const rows = await listImages(200);
-    const est = rows.filter((r) => r.kind !== "upload" && r.model !== "format" && r.model !== "enhance" && new Date(r.created_at) >= month).reduce((s, r) => s + costHint(r.size, r.quality), 0);
+    const est = rows.filter((r) => r.kind !== "upload" && !["format", "enhance", "resize"].includes(r.model) && new Date(r.created_at) >= month).reduce((s, r) => s + costHint(r.size, r.quality), 0);
     return { content: [{ type: "text", text: `Today: ${d} / ${MAX_PER_DAY} images. Last 30 days: ${m} images ≈ $${est.toFixed(2)} (list-price estimate; see platform.openai.com → Usage for the real number). Model: ${MODEL}.` }] };
   });
 
@@ -434,13 +568,22 @@ app.get("/img/:file", async (req, res) => {
   const id = String(req.params.file).replace(/\.[a-z0-9]+$/i, "");
   const r = await getImage(id); if (!r) return res.status(404).send("not found");
   res.setHeader("Content-Type", r.mime); res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-  res.setHeader("Content-Disposition", `inline; filename="${(r.title || r.kind).replace(/[^\w.-]+/g, "_").slice(0, 60)}-${id}.${extOf(r.mime)}"`);
+  const fname = `${(r.title || r.kind).replace(/[^\w.-]+/g, "-").replace(/-+/g, "-").slice(0, 150)}.${extOf(r.mime)}`;
+  res.setHeader("Content-Disposition", `${req.query.dl ? "attachment" : "inline"}; filename="${fname}"`);
   res.send(r.bytes);
 });
+const thumbCache = new Map();               // id:size → JPEG, small LRU so the gallery stays fast
 app.get("/thumb/:id", async (req, res) => {
-  const r = await getImage(req.params.id); if (!r) return res.status(404).end();
-  const pv = await preview(r.bytes, 480); if (!pv) return res.redirect(`/img/${r.id}`);
-  res.setHeader("Content-Type", "image/jpeg"); res.setHeader("Cache-Control", "public, max-age=31536000, immutable"); res.send(Buffer.from(pv.data, "base64"));
+  const s = Math.max(160, Math.min(1600, Number(req.query.s) || 480));
+  const key = `${req.params.id}:${s}`;
+  let buf = thumbCache.get(key);
+  if (!buf) {
+    const r = await getImage(req.params.id); if (!r) return res.status(404).end();
+    try { buf = await sharp(r.bytes).rotate().resize({ width: s, height: s, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer(); }
+    catch { return res.redirect(`/img/${r.id}`); }
+    thumbCache.set(key, buf); if (thumbCache.size > 800) thumbCache.delete(thumbCache.keys().next().value);
+  }
+  res.setHeader("Content-Type", "image/jpeg"); res.setHeader("Cache-Control", "public, max-age=31536000, immutable"); res.send(buf);
 });
 
 // Uploads from the page (raw body) — photos the user wants Claude to edit, or masks
@@ -455,12 +598,12 @@ app.post("/api/upload", express.raw({ type: ["image/png", "image/jpeg", "image/w
 // ?side=uploads → only uploads; ?side=made → generations, edits, formats and enhanced copies. No side → everything.
 app.get("/api/images", async (req, res) => {
   if (!authed(req)) return res.status(401).json({ error: "bad key" });
-  const limit = Math.min(Number(req.query.limit || 60), 300);
+  const limit = Math.min(Number(req.query.limit || 60), 2000);
   const side = req.query.side;
   let rows;
   if (side === "uploads") rows = await listImages(limit, "upload");
   else if (side === "made") {
-    if (pool) rows = (await db(`SELECT id, kind, title, prompt, model, size, quality, mime, width, height, parents, created_at, length(bytes) AS bytes_len FROM ad_images WHERE kind <> 'upload' ORDER BY created_at DESC LIMIT $1`, [limit])).rows;
+    if (pool) rows = (await db(`SELECT id, kind, title, prompt, model, size, quality, mime, width, height, parents, created_at, folder, favorite, sort_order, product_url, product_title, length(bytes) AS bytes_len FROM ad_images WHERE kind <> 'upload' ORDER BY created_at DESC LIMIT $1`, [limit])).rows;
     else rows = (await listImages(100000)).filter((r) => r.kind !== "upload").slice(0, limit);
   } else rows = await listImages(limit);
   res.json({ images: rows });
@@ -468,6 +611,7 @@ app.get("/api/images", async (req, res) => {
 async function deleteImages(ids) {
   ids = [...new Set(ids.map(String).filter(Boolean))].slice(0, 500);
   if (!ids.length) return 0;
+  for (const k of [...thumbCache.keys()]) if (ids.includes(k.split(":")[0])) thumbCache.delete(k);
   if (pool) return (await db(`DELETE FROM ad_images WHERE id = ANY($1::text[])`, [ids])).rowCount;
   let n = 0; for (const id of ids) if (mem.delete(id)) n++; return n;
 }
@@ -478,6 +622,36 @@ app.post("/api/images/delete", async (req, res) => {
   const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids : [];
   res.json({ ok: true, deleted: await deleteImages(ids) });
 });
+// v1.6 — organize + resize from the page
+app.patch("/api/images/:id", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); res.json({ ok: true, updated: await updateImages([req.params.id], req.body || {}) }); });
+app.post("/api/images/update", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); const b = req.body || {}; const { ids, ...patch } = b; delete patch.title; res.json({ ok: true, updated: await updateImages(ids, patch) }); });
+app.post("/api/images/order", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); res.json({ ok: true, ordered: await setOrder((req.body || {}).ids) }); });
+app.post("/api/images/:id/resize", async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: "bad key" });
+  try {
+    const r = await getImage(req.params.id); if (!r) return res.status(404).json({ error: "not found" });
+    if (req.query.preview) {   // exact result, small, not saved — for the page's preview
+      const pv = await resizeImage(r.bytes, req.body || {}, (b, W, H) => toFormat(b, W, H));
+      const small = await sharp(pv.bytes).resize({ width: 700, height: 700, fit: "inside" }).jpeg({ quality: 80 }).toBuffer();
+      res.setHeader("Content-Type", "image/jpeg"); return res.send(small);
+    }
+    const out = await resizeAndSave(r, req.body || {});
+    res.json({ ok: true, id: out.id, url: imageUrl(out.id, "jpg"), width: out.width, height: out.height, notes: out.notes });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get("/api/products", async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: "bad key" });
+  const q = String(req.query.q || "").trim(); if (!q) return res.json({ products: [] });
+  try {
+    if (/^https?:\/\//i.test(q)) return res.json({ products: [await resolveProduct(q)] });
+    res.json({ products: await searchProducts(q) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get("/api/presets", (_q, r) => r.json({ presets: PRESETS }));
+app.get("/api/folders", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); res.json({ folders: await listFolders() }); });
+app.post("/api/folders", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); const n = cleanFolder((req.body || {}).name); if (!n) return res.status(400).json({ error: "Give the folder a name." }); await ensureFolder(n); res.json({ ok: true, name: n }); });
+app.post("/api/folders/rename", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); try { await renameFolder(req.body.from, req.body.to); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post("/api/folders/delete", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); await deleteFolder((req.body || {}).name); res.json({ ok: true }); });
 app.get("/api/version", (_q, r) => r.json({ version: VERSION, model: MODEL }));
 app.get("/health", (_q, r) => r.send("ok"));
 

@@ -1,4 +1,4 @@
-# Ad Studio v1.5
+# Ad Studio v1.6
 
 Image generation for Claude, powered by OpenAI's gpt-image model.
 
@@ -8,7 +8,16 @@ Image generation for Claude, powered by OpenAI's gpt-image model.
 Tools Claude gets: fetch_product, import_image, generate_image, edit_image (keeps faces/products with input_fidelity=high), make_formats (free 1:1 / 4:5 / 9:16), **enhance** (free upscale ×2/×4 + clarity + sharpen (grain optional, off by default) — the last step before an image goes to Meta), list_images, get_image, usage.
 
 Env (set on Railway): OPENAI_API_KEY, MCP_TOKEN, DATABASE_URL, PUBLIC_URL, OPENAI_IMAGE_MODEL (default gpt-image-1), MAX_IMAGES_PER_DAY (default 80).
+Optional: STORE_URL (default https://larkspurbaby.com) — store used for product search.
 Optional: REPLICATE_API_TOKEN — when set, `enhance` uses an AI upscaler (Real-ESRGAN on replicate.com, a few cents per image) that recovers real detail instead of a plain resample.
+
+## What's new in 1.6
+- **Resize for placements** (free, no AI): Instagram post 1:1, Instagram portrait 4:5, Story / Reel 9:16, Facebook link 1.91:1, Pinterest 2:3, Square HD, or any custom size. *Crop to fill* with a draggable frame and zoom, or *Keep whole image* (extra space filled with a soft blur of the photo's own edges, exact preview). Copies are JPEGs named `<title>-<preset>-<W>x<H>` and land in the same folder. Warns when a size will be enlarged.
+- **Organize**: folders (drag cards onto a folder, rename/delete folders), favorites, search, sort (newest / oldest / name / custom order — drag to arrange), group by product, thumbnail size, bulk move / favorite / delete.
+- **Product links**: link images to a store product (search larkspurbaby.com or paste a product link); the card links to the product page and resized copies keep the link. Set STORE_URL to use another store.
+- **Rename**: double-click a name (or ⋯ → Rename, or in the viewer). The download file name follows the image name.
+- Full-size viewer with arrow-key navigation; faster thumbnails (cached, correct phone rotation).
+- New connector tools: `resize_image`, `organize_images` (folder / favorite / product link / rename).
 
 ## What's new in 1.5
 - The page is split into two sides: **Uploaded** (left) and **Generated** (right — generations, edits, formats, enhanced copies). Each side loads its own list, so uploads never get pushed off by new generations.
