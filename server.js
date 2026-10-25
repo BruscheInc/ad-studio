@@ -244,10 +244,13 @@ const extOf = (mime) => (mime === "image/jpeg" ? "jpg" : mime === "image/webp" ?
 
 /* ---------------- previews (small JPEG so Claude can see the picture without a huge payload) ---------------- */
 let Jimp = null;
+// Jimp can't decode WebP; sharp can. Turn WebP into PNG before handing it to Jimp.
+const isWebp = (b) => Buffer.isBuffer(b) && b.length > 12 && b.toString("ascii", 0, 4) === "RIFF" && b.toString("ascii", 8, 12) === "WEBP";
+async function decodable(bytes) { return isWebp(bytes) ? sharp(bytes).png().toBuffer() : bytes; }
 async function preview(bytes, maxEdge = 768) {
   try {
     if (!Jimp) Jimp = (await import("jimp")).Jimp;
-    const im = await Jimp.read(bytes);
+    const im = await Jimp.read(await decodable(bytes));
     const w = im.bitmap.width, h = im.bitmap.height;
     if (Math.max(w, h) > maxEdge) im.scaleToFit({ w: maxEdge, h: maxEdge });
     const out = await im.getBuffer("image/jpeg", { quality: 78 });
@@ -255,14 +258,14 @@ async function preview(bytes, maxEdge = 768) {
   } catch (e) { return null; }
 }
 async function dims(bytes) {
-  try { if (!Jimp) Jimp = (await import("jimp")).Jimp; const im = await Jimp.read(bytes); return { width: im.bitmap.width, height: im.bitmap.height }; } catch { return {}; }
+  try { if (!Jimp) Jimp = (await import("jimp")).Jimp; const im = await Jimp.read(await decodable(bytes)); return { width: im.bitmap.width, height: im.bitmap.height }; } catch { return {}; }
 }
 
 /* ---------------- Formats without spending a generation: pad/crop an approved image to 1:1, 4:5 and 9:16.
  * Padding mirrors the image's own edge, blurs it and fades it in, which reads as "more blanket" on bedding scenes. ---- */
 async function toFormat(bytes, W, H) {
   if (!Jimp) Jimp = (await import("jimp")).Jimp;
-  const src = await Jimp.read(bytes);
+  const src = await Jimp.read(await decodable(bytes));
   const sw = src.bitmap.width, sh = src.bitmap.height;
   const srcRatio = sw / sh, dstRatio = W / H;
   if (Math.abs(srcRatio - dstRatio) < 0.02) { src.resize({ w: W, h: H }); return src.getBuffer("image/png"); }
