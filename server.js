@@ -466,11 +466,19 @@ function buildServer() {
   }, async ({ prompt, image_ids, mask_id, size, quality, n, input_fidelity, products, no_products, allow_created_source, title }) => {
     size = checkSize(size);
     try {
-      if (!no_products && !(products && products.length)) throw new Error("Product failsafe: list every Larkspur product in this image under products (exact store titles), or set no_products=true if there are none.");
+      // Clients with an older copy of this tool's schema can't send the new fields — accept them as prompt lines too:
+      //   PRODUCTS: Zipper Romper in Twinkle Night @12-18M | Women's Long Sleeve Pajamas in Twinkle Night @M
+      //   NO PRODUCTS        ALLOW CREATED SOURCE
+      const pm = prompt.match(/^\s*PRODUCTS:\s*(.+)$/im);
+      if (pm && !(products && products.length)) products = pm[1].split("|").map((x) => x.trim()).filter(Boolean).map((x) => { const [name, size] = x.split("@").map((y) => y.trim()); return { name, size: size || undefined }; });
+      if (/^\s*NO PRODUCTS\s*$/im.test(prompt)) no_products = true;
+      if (/^\s*ALLOW CREATED SOURCE\s*$/im.test(prompt)) allow_created_source = true;
+      prompt = prompt.replace(/^\s*(PRODUCTS:.*|NO PRODUCTS|ALLOW CREATED SOURCE)\s*$/gim, "").trim();
+      if (!no_products && !(products && products.length)) throw new Error("Product failsafe: list every Larkspur product in this image under products (exact store titles) — or a prompt line \"PRODUCTS: Title @size | Title @size\" — or set no_products=true / a line \"NO PRODUCTS\" if there are none.");
       const images = [];
       for (const id of image_ids) {
         const r = await getImage(id); if (!r) throw new Error(`No image with id ${id}. Use list_images.`);
-        if (isCreatedImage(r) && !allow_created_source) throw new Error(`Product failsafe: ${id} is an image Ad Studio already made (or our AI image re-imported). New images must start from original photos — use the original model/scene photo and let the products be pulled fresh. (allow_created_source=true is only for catalog close-ups of an approved image the user asked for.)`);
+        if (isCreatedImage(r) && !allow_created_source) throw new Error(`Product failsafe: ${id} is an image Ad Studio already made (or our AI image re-imported). New images must start from original photos — use the original model/scene photo and let the products be pulled fresh. (allow_created_source=true or a line \"ALLOW CREATED SOURCE\" is only for catalog close-ups of an approved image the user asked for.)`);
         images.push(r);
       }
       let checks = [];
