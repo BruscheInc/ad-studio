@@ -35,6 +35,7 @@ const { StreamableHTTPServerTransport } = require("@modelcontextprotocol/sdk/ser
 const { enhance, hasAIUpscaler } = require("./enhance.js");
 const sharp = require("sharp");
 const { PRESETS, LOGOS, resizeImage, sizeSlug } = require("./social.js");
+const guard = require("./garment-guard.js");
 
 const VERSION = require("./package.json").version;
 const PORT = process.env.PORT || 8080;
@@ -230,6 +231,40 @@ async function searchProducts(q) {
     image: p.image || (p.featured_image && p.featured_image.url) || null, price: p.price || null,
   }));
 }
+/* ---------------- product failsafe (v1.8): fresh product photos + tech pack on every product image ---------------- */
+function isCreatedImage(r) {
+  const src = r.meta && (typeof r.meta === "string" ? (JSON.parse(r.meta || "{}").source_url) : r.meta.source_url);
+  return r.kind !== "upload" || guard.isAiName(r.title) || guard.isAiName(src);
+}
+async function findStoreProduct(name) {
+  if (/^https?:\/\//i.test(name)) { const u = new URL(name); const m = u.pathname.match(/\/products\/([^\/?#]+)/); if (!m) throw new Error(`Not a product link: ${name}`); return `${u.origin}/products/${m[1]}`; }
+  const list = await loadCatalog();
+  const exact = list.find((p) => p.title.toLowerCase() === String(name).trim().toLowerCase());
+  const hit = exact || matchProduct(name, list);
+  if (!hit) throw new Error(`Couldn't find "${name}" in the store. Use the exact product title or paste its product link.`);
+  return hit.url;
+}
+/** Pull the product's ORIGINAL photos fresh from the store (never our own "larkspur-baby-…" uploads) + its spec text. */
+async function freshProductRefs(products) {
+  const refs = [], specs = [], notes = [];
+  for (const pr of products) {
+    const url = await findStoreProduct(pr.name);
+    const r = await fetch(`${url}.json`, { headers: { Accept: "application/json" } });
+    if (!r.ok) throw new Error(`Store returned HTTP ${r.status} for ${url}`);
+    const p = (await r.json()).product;
+    const originals = (p.images || []).map((i) => i.src).filter((src) => !guard.isAiName(src.split("?")[0].split("/").pop()));
+    if (!originals.length) throw new Error(`"${p.title}" has no original product photo on the store (only AI images). Upload one before making images of it.`);
+    for (const src of originals.slice(0, 2)) {
+      const ir = await fetch(src); if (!ir.ok) throw new Error(`HTTP ${ir.status} downloading ${src}`);
+      const mime = (ir.headers.get("content-type") || "image/jpeg").split(";")[0].trim();
+      refs.push({ id: `product-${p.handle}-${refs.length + 1}`, mime, bytes: Buffer.from(await ir.arrayBuffer()), label: p.title });
+    }
+    const sp = guard.specText(p.title, pr.size);
+    specs.push(sp.text);
+    notes.push(`${p.title}: ${Math.min(2, originals.length)} original photo(s) pulled fresh; ${sp.style ? `tech pack ${sp.style} size ${sp.size}` : "no tech pack on file"}`);
+  }
+  return { refs, specs, notes };
+}
 /** Resize an image to a placement size and save the copy (same folder as the source). */
 async function resizeAndSave(r, opt) {
   const out = await resizeImage(r.bytes, opt, (b, W, H) => toFormat(b, W, H));
@@ -387,7 +422,7 @@ function buildServer() {
 
   server.registerTool("generate_image", {
     title: "Generate image",
-    description: `Create one or more images from a text prompt with OpenAI's ${MODEL}. Good for lifestyle ad scenes, product mock-ups, social creatives, and images that contain short text (check spelling in the result). Returns a preview of each image plus a URL to the full-resolution file. Sizes: 1024x1024 (square), 1536x1024 (landscape), 1024x1536 (portrait). Quality: low (cheap draft), medium (default), high (final). Costs real money per image (roughly $0.01–$0.25 each).`,
+    description: `Create one or more images from a text prompt with OpenAI's ${MODEL}. Never use this for images that show a Larkspur product — use edit_image with products so the real product photos and tech pack are attached. Good for lifestyle ad scenes, product mock-ups, social creatives, and images that contain short text (check spelling in the result). Returns a preview of each image plus a URL to the full-resolution file. Sizes: 1024x1024 (square), 1536x1024 (landscape), 1024x1536 (portrait). Quality: low (cheap draft), medium (default), high (final). Costs real money per image (roughly $0.01–$0.25 each).`,
     inputSchema: {
       prompt: z.string().min(3).max(32000).describe("Full description: subject, scene, lighting, mood, colours, composition, any text to render (in quotes), and what to avoid."),
       size: z.string().default(BIG ? "2048x2048" : "1024x1024").describe(SIZE_HELP),
@@ -413,7 +448,7 @@ function buildServer() {
 
   server.registerTool("edit_image", {
     title: "Edit image",
-    description: `Edit, extend, restyle or combine existing images (uploads from the Ad Studio page or earlier generations) using a text instruction. With input_fidelity=high (default) faces, products and fine details in the source are preserved closely — use this to change a background, add a scene, place a product, or make a variation while keeping the subject exact. Optional mask: a PNG the same size as the first image where TRANSPARENT pixels mark the area to repaint and opaque pixels are kept. Pass image ids (e.g. "aB3dE9fG") — see list_images for what's available.`,
+    description: `PRODUCT FAILSAFE: list every Larkspur product in the image under products — Ad Studio pulls its original photos fresh from the store and adds its tech pack; images Ad Studio already made are refused as sources. Edit, extend, restyle or combine existing images (uploads from the Ad Studio page or earlier generations) using a text instruction. With input_fidelity=high (default) faces, products and fine details in the source are preserved closely — use this to change a background, add a scene, place a product, or make a variation while keeping the subject exact. Optional mask: a PNG the same size as the first image where TRANSPARENT pixels mark the area to repaint and opaque pixels are kept. Pass image ids (e.g. "aB3dE9fG") — see list_images for what's available.`,
     inputSchema: {
       prompt: z.string().min(3).max(32000).describe("What to change or create. Say explicitly what must stay identical (e.g. 'keep the baby and the purple footie exactly as they are; only replace the background')."),
       image_ids: z.array(z.string()).min(1).max(8).describe("Ids of the source image(s). The first is the main image; others are references (e.g. a product shot to place in the scene)."),
@@ -422,14 +457,32 @@ function buildServer() {
       quality: z.enum(QUALITIES).default("medium"),
       n: z.number().int().min(1).max(4).default(1),
       input_fidelity: z.enum(["high", "low"]).default("high").describe("high = preserve the source subject closely (faces, garments, logos). low = looser, more creative."),
+      products: z.array(z.object({ name: z.string().describe("Exact store product title (e.g. 'Zipper Romper in Twinkle Night') or its product link."), size: z.string().optional().describe("Tech-pack size to show, e.g. '12-18M', 'M'. Default: middle size.") })).optional()
+        .describe("REQUIRED whenever a Larkspur product appears. Ad Studio pulls each product's original photos fresh from the store, attaches them after your images, and adds its tech pack + construction rules to the prompt."),
+      no_products: z.boolean().default(false).describe("Set true only when no Larkspur product appears in the image."),
+      allow_created_source: z.boolean().default(false).describe("Allow an image Ad Studio already made as a source. Only for zoomed catalog close-ups of an approved image the user asked for — garments still come from the fresh product photos."),
       title: z.string().max(120).optional(),
     },
-  }, async ({ prompt, image_ids, mask_id, size, quality, n, input_fidelity, title }) => {
+  }, async ({ prompt, image_ids, mask_id, size, quality, n, input_fidelity, products, no_products, allow_created_source, title }) => {
     size = checkSize(size);
     try {
-      await guardBudget(n);
+      if (!no_products && !(products && products.length)) throw new Error("Product failsafe: list every Larkspur product in this image under products (exact store titles), or set no_products=true if there are none.");
       const images = [];
-      for (const id of image_ids) { const r = await getImage(id); if (!r) throw new Error(`No image with id ${id}. Use list_images.`); images.push(r); }
+      for (const id of image_ids) {
+        const r = await getImage(id); if (!r) throw new Error(`No image with id ${id}. Use list_images.`);
+        if (isCreatedImage(r) && !allow_created_source) throw new Error(`Product failsafe: ${id} is an image Ad Studio already made (or our AI image re-imported). New images must start from original photos — use the original model/scene photo and let the products be pulled fresh. (allow_created_source=true is only for catalog close-ups of an approved image the user asked for.)`);
+        images.push(r);
+      }
+      let checks = [];
+      if (products && products.length) {
+        const fresh = await freshProductRefs(products);
+        if (images.length + fresh.refs.length > 16) throw new Error("Too many images: keep your own sources to a few; each product adds up to 2 photos.");
+        const order = fresh.refs.map((x, k) => `image ${images.length + k + 1} = ${x.label} (original product photo)`).join("; ");
+        prompt += `\n\nPRODUCT FAILSAFE — the garments must match the attached ORIGINAL product photos exactly (${order}): same print, colours, trim, piping, zipper and construction. Copy garments ONLY from those product photos, never from any other image. Product specs from the factory tech packs:\n${fresh.specs.join("\n\n")}`;
+        images.push(...fresh.refs);
+        checks = fresh.notes;
+      }
+      await guardBudget(n);
       const mask = mask_id ? await getImage(mask_id) : null;
       if (mask_id && !mask) throw new Error(`No mask with id ${mask_id}.`);
       const j = await openaiEdit({ prompt, images, mask, size, quality, n, inputFidelity: input_fidelity });
@@ -437,9 +490,9 @@ function buildServer() {
       for (const d of j.data || []) {
         const bytes = Buffer.from(d.b64_json, "base64");
         const dm = await dims(bytes);
-        ids.push(await saveImage({ kind: "edited", title, prompt, model: MODEL, size, quality, mime: "image/png", bytes, ...dm, parents: image_ids, meta: { usage: j.usage || null, mask_id: mask_id || null, input_fidelity } }));
+        ids.push(await saveImage({ kind: "edited", title, prompt, model: MODEL, size, quality, mime: "image/png", bytes, ...dm, parents: image_ids, meta: { usage: j.usage || null, mask_id: mask_id || null, input_fidelity, products: products || null, product_checks: checks } }));
       }
-      return resultFor(ids, `Edited → ${ids.length} image${ids.length === 1 ? "" : "s"} (${MODEL}${supportsFidelity(MODEL) ? `, fidelity ${input_fidelity}` : ""}).`);
+      return resultFor(ids, `Edited → ${ids.length} image${ids.length === 1 ? "" : "s"} (${MODEL}${supportsFidelity(MODEL) ? `, fidelity ${input_fidelity}` : ""}).${checks.length ? `\nProduct failsafe: ${checks.join(" | ")}. Check the result against the tech pack before showing it.` : ""}`);
     } catch (e) { return { isError: true, content: [{ type: "text", text: e.message }] }; }
   });
 
