@@ -26,6 +26,9 @@
  *   REPLICATE_API_TOKEN   optional — turns on AI upscaling (Real-ESRGAN) inside the enhance tool
  *   REPLICATE_UPSCALE_MODEL optional — default nightmareai/real-esrgan
  */
+// Text in compose_email is drawn by sharp (Pango/fontconfig). The container has no system fontconfig file, so point
+// fontconfig at our own config (fonts/ in this repo) BEFORE sharp loads.
+process.env.FONTCONFIG_FILE = process.env.FONTCONFIG_FILE || require("path").join(__dirname, "fonts", "fonts.conf");
 const express = require("express");
 const crypto = require("crypto");
 const { Pool } = require("pg");
