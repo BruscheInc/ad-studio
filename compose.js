@@ -27,12 +27,26 @@ const col = (c, d) => (c ? (COLORS[c] || c) : d);
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** Render text with a real font. Returns { buf, w, h } (transparent PNG). size in px. */
-async function text(str, { font = "sans", weight = "Regular", size = 40, color = "#000", width, align = "centre", spacing = 0, lineHeight } = {}) {
+async function text(str, o = {}) {
+  const { size = 40, lineHeight, align = "centre" } = o;
+  const lines = String(str ?? "").split("\n");
+  if (lines.length > 1 && lineHeight) {          // stack lines ourselves so line spacing can be tighter than the font's
+    const parts = [];
+    for (const l of lines) parts.push(await text1(l || " ", { ...o, lineHeight: undefined }));
+    const step = Math.round(size * lineHeight * 1.18);
+    const W = Math.max(...parts.map((p) => p.w)), H = step * (lines.length - 1) + parts[parts.length - 1].h;
+    const layers = parts.map((p, i) => ({ input: p.buf, top: i * step, left: align === "left" ? 0 : align === "right" ? W - p.w : Math.round((W - p.w) / 2) }));
+    const buf = await sharp({ create: { width: W, height: H, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).composite(layers).png().toBuffer();
+    return { buf, w: W, h: H };
+  }
+  return text1(str, o);
+}
+async function text1(str, { font = "sans", weight = "Regular", size = 40, color = "#000", width, align = "centre", spacing = 0, lineHeight } = {}) {
   const f = FONTS[font] || FONTS.sans;
   let markup = `<span foreground="${col(color)}"${spacing ? ` letter_spacing="${Math.round(spacing * 1024)}"` : ""}>${esc(str)}</span>`;
   const opts = { text: markup, font: `${f.family} ${weight} ${size}`, fontfile: f.file, rgba: true, dpi: 72, align };
   if (width) { opts.width = Math.round(width); opts.wrap = "word"; }
-  if (lineHeight) opts.spacing = Math.round(size * (lineHeight - 1));
+  if (lineHeight && lineHeight > 1) opts.spacing = Math.round(size * (lineHeight - 1));
   const img = sharp({ text: opts });
   const buf = await img.png().toBuffer();
   const m = await sharp(buf).metadata();
@@ -85,7 +99,7 @@ async function textStack(b, W, S, defaults = {}) {
   const inner = Math.round(W - 2 * (b.pad_x ?? 0.09 * S));
   const pieces = [];
   if (b.eyebrow) pieces.push({ ...(await text(b.eyebrow.toUpperCase(), { font: "sans", weight: "SemiBold", size: Math.round(0.019 * S), color, width: inner, spacing: Math.round(0.006 * S) })), gap: Math.round(0.022 * S) });
-  if (b.script) pieces.push({ ...(await text(b.script, { font: "hand", weight: "Regular", size: Math.round(0.05 * S), color: col(b.accent, color), width: inner })), gap: -Math.round(0.006 * S) });
+  if (b.script) pieces.push({ ...(await text(b.script, { font: "hand", weight: "Regular", size: Math.round(0.05 * S), color: col(b.accent, color), width: inner })), gap: Math.round(0.004 * S) });
   if (b.headline) pieces.push({ ...(await text(b.headline, { font: "serif", weight: b.headline_weight || "Regular", size: Math.round((b.headline_size || (defaults.headline_size || 0.072)) * S), color, width: inner, lineHeight: 0.95 })), gap: Math.round(0.026 * S) });
   if (b.body) pieces.push({ ...(await text(b.body, { font: "sans", weight: "Regular", size: Math.round((defaults.body_size || 0.026) * S), color, width: Math.min(inner, Math.round(0.78 * W)), lineHeight: 1.25 })), gap: Math.round(0.038 * S) });
   const btns = b.buttons || (b.button ? [b.button] : []);
@@ -170,21 +184,27 @@ async function renderBlock(b, W, S, getBytes) {
     }
     case "pair": {
       const gap = Math.round((b.gap ?? 0.025) * W), pad = Math.round((b.pad ?? 0.05) * W);
+      const padTop = Math.round((b.pad_top ?? b.pad ?? 0.05) * W), padBottom = Math.round((b.pad_bottom ?? b.pad ?? 0.05) * W);
       const items = (b.items || []).slice(0, 3);
       const cw = Math.round((W - pad * 2 - gap * (items.length - 1)) / items.length);
       const ch = Math.round(cw * (b.ratio || 1.25));
-      const layers = []; let maxH = 0; const cells = [];
+      const color = col(b.color, COLORS.navy);
+      const rows = [[], [], [], []];            // photo, label, sub, button — each row lined up across the tiles
       for (const it of items) {
-        const ph = await coverPhoto(await getBytes(it.image_id), cw, ch, it.focus_x ?? 0.5, it.focus_y ?? 0.5, it.zoom || 1);
-        const parts = [{ buf: ph, w: cw, h: ch, gap: Math.round(0.018 * S) }];
-        if (it.label) parts.push({ ...(await text(it.label, { font: "serif", size: Math.round(0.036 * S), color: col(b.color, COLORS.navy), width: cw })), gap: Math.round(0.006 * S) });
-        if (it.sub) parts.push({ ...(await text(it.sub, { font: "sans", size: Math.round(0.022 * S), color: col(b.color, COLORS.navy), width: cw })), gap: Math.round(0.016 * S) });
-        if (it.button) parts.push({ ...(await button(it.button.label || it.button, { bg: it.button.bg || b.button_bg || "red", size: Math.round(0.022 * S), minWidth: Math.round(cw * 0.75) })), gap: 0 });
-        const h = parts.reduce((s, p, i) => s + p.h + (i < parts.length - 1 ? p.gap : 0), 0);
-        maxH = Math.max(maxH, h); cells.push(parts);
+        rows[0].push({ buf: await coverPhoto(await getBytes(it.image_id), cw, ch, it.focus_x ?? 0.5, it.focus_y ?? 0.5, it.zoom || 1), w: cw, h: ch });
+        rows[1].push(it.label ? await text(it.label, { font: "serif", size: Math.round(0.036 * S), color, width: cw }) : null);
+        rows[2].push(it.sub ? await text(it.sub, { font: "sans", size: Math.round(0.021 * S), color, width: cw }) : null);
+        rows[3].push(it.button ? await button(it.button.label || it.button, { bg: it.button.bg || b.button_bg || "red", size: Math.round(0.021 * S), minWidth: Math.round(cw * 0.72) }) : null);
       }
-      cells.forEach((parts, i) => { let y = pad; const x0 = pad + i * (cw + gap); parts.forEach((p) => { layers.push({ input: p.buf, left: x0 + Math.round((cw - p.w) / 2), top: Math.round(y) }); y += p.h + p.gap; }); });
-      return sharp(await solid(W, maxH + pad * 2, bg)).composite(layers).png().toBuffer();
+      const gaps = [Math.round(0.016 * S), Math.round(0.004 * S), Math.round(0.016 * S), 0];
+      const layers = []; let y = padTop;
+      rows.forEach((row, ri) => {
+        const rh = Math.max(0, ...row.map((p) => (p ? p.h : 0)));
+        if (!rh) return;
+        row.forEach((p, i) => { if (p) layers.push({ input: p.buf, left: pad + i * (cw + gap) + Math.round((cw - p.w) / 2), top: Math.round(y) }); });
+        y += rh + gaps[ri];
+      });
+      return sharp(await solid(W, Math.round(y) + padBottom, bg)).composite(layers).png().toBuffer();
     }
     case "links": {
       const pad = Math.round(0.05 * W), gap = Math.round(0.02 * W), cw = Math.round((W - pad * 2 - gap) / 2);
