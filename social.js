@@ -15,7 +15,25 @@ const PRESETS = {
   "fb-link":     { label: "Facebook link",      ratio: "1.91:1", w: 1200, h: 628 },
   "pinterest":   { label: "Pinterest pin",      ratio: "2:3",    w: 1000, h: 1500 },
   "square-hd":   { label: "Square HD",          ratio: "1:1",    w: 2048, h: 2048 },
+  "email-hero":  { label: "Email hero (logo added)", ratio: "9:17", w: 900, h: 1700, logo: "dark-navy" },
 };
+
+/* Brand logo, stamped on in exactly the same spot every time (measured from the approved Larkspur email:
+ * centred, about 37.6% of the width, top edge 3.9% of the width down). Variants live in brand/. */
+const path = require("path");
+const fs = require("fs");
+const LOGO_DIR = path.join(__dirname, "brand");
+const LOGOS = fs.existsSync(LOGO_DIR)
+  ? fs.readdirSync(LOGO_DIR).filter((f) => /^larkspur-primary-.+\.svg$/.test(f)).map((f) => f.replace(/^larkspur-primary-|\.svg$/g, ""))
+  : [];
+async function addLogo(buf, W, H, variant) {
+  const file = path.join(LOGO_DIR, `larkspur-primary-${variant}.svg`);
+  if (!fs.existsSync(file)) throw new Error(`Unknown logo "${variant}". Options: ${LOGOS.join(", ")}`);
+  const lw = Math.round((W * 513) / 1364 / 0.995), lh = Math.round(lw / 5);
+  const left = Math.round((W * 433) / 1364 - 0.0025 * lw), top = Math.round((W * 53) / 1364 - 0.02125 * lh);
+  const logo = await sharp(file, { density: 600 }).resize(lw, lh).png().toBuffer();
+  return sharp(buf).composite([{ input: logo, left, top }]).toBuffer();
+}
 
 const clampInt = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(v)));
 
@@ -76,6 +94,11 @@ async function resizeImage(bytes, opt, extendFn) {
     out = await sharp(base).extract(rect).resize(W, H, { fit: "fill", kernel: "lanczos3" })
       .jpeg({ quality: 92, chromaSubsampling: "4:4:4" }).toBuffer();
   }
+  const logo = opt.logo === "none" ? null : (opt.logo || (p && p.logo) || null);
+  if (logo) {
+    out = await sharp(await addLogo(out, W, H, logo)).jpeg({ quality: 92, chromaSubsampling: "4:4:4" }).toBuffer();
+    notes.push(`logo: ${logo}`);
+  }
   return { bytes: out, width: W, height: H, mime: "image/jpeg", mode, notes, full: !!opt.full };
 }
 
@@ -84,4 +107,4 @@ function sizeSlug(preset, W, H, full) {
   return `${PRESETS[preset] ? preset : "custom"}${full ? "-full" : ""}-${W}x${H}`;
 }
 
-module.exports = { PRESETS, resizeImage, sizeSlug };
+module.exports = { PRESETS, LOGOS, resizeImage, sizeSlug };

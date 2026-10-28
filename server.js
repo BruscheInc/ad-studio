@@ -34,7 +34,7 @@ const { McpServer } = require("@modelcontextprotocol/sdk/server/mcp.js");
 const { StreamableHTTPServerTransport } = require("@modelcontextprotocol/sdk/server/streamableHttp.js");
 const { enhance, hasAIUpscaler } = require("./enhance.js");
 const sharp = require("sharp");
-const { PRESETS, resizeImage, sizeSlug } = require("./social.js");
+const { PRESETS, LOGOS, resizeImage, sizeSlug } = require("./social.js");
 
 const VERSION = require("./package.json").version;
 const PORT = process.env.PORT || 8080;
@@ -557,7 +557,7 @@ function buildServer() {
 
   server.registerTool("resize_image", {
     title: "Resize for a placement (free)",
-    description: `Make a delivery-size copy of an image for a specific placement, with no AI generation and no cost. Presets: ${Object.entries(PRESETS).map(([k, v]) => `${k} = ${v.label} ${v.ratio} (${v.w}×${v.h})`).join("; ")}; or preset "custom" with width and height. mode "crop" fills the frame by cropping — position picks which part to keep (center/top/bottom/left/right). mode "extend" keeps the whole image and fills the extra space with a soft blurred continuation of its edges. The copy is saved as a JPEG in the same folder as the source, named <source title>-<preset>-<W>x<H> unless a title is given.`,
+    description: `Make a delivery-size copy of an image for a specific placement, with no AI generation and no cost. Presets: ${Object.entries(PRESETS).map(([k, v]) => `${k} = ${v.label} ${v.ratio} (${v.w}×${v.h})`).join("; ")}; or preset "custom" with width and height. mode "crop" fills the frame by cropping — position picks which part to keep (center/top/bottom/left/right). mode "extend" keeps the whole image and fills the extra space with a soft blurred continuation of its edges. The copy is saved as a JPEG in the same folder as the source, named <source title>-<preset>-<W>x<H> unless a title is given. email-hero (900×1700) also stamps the Larkspur logo in the same top-centre spot every time — keep the top ~7% of the photo clear for it.`,
     inputSchema: {
       id: z.string().describe("Id of the image to resize."),
       preset: z.enum([...Object.keys(PRESETS), "custom"]).default("ig-portrait"),
@@ -566,13 +566,14 @@ function buildServer() {
       mode: z.enum(["crop", "extend"]).default("crop"),
       position: z.enum(["center", "top", "bottom", "left", "right"]).default("center").describe("Which part to keep when cropping."),
       full_quality: z.boolean().default(false).describe("Keep every pixel the photo has (same shape as the preset, larger than its standard pixel size, up to 4096 px). Sharper; still fine to upload."),
+      logo: z.enum([...(LOGOS.length ? LOGOS : ["dark-navy"]), "none"]).optional().describe("Stamp the Larkspur logo at the fixed email-hero spot (top centre). email-hero adds dark-navy by default; use a light-* version on dark photos, or none."),
       title: z.string().max(160).optional(),
     },
-  }, async ({ id, preset, width, height, mode, position, full_quality, title }) => {
+  }, async ({ id, preset, width, height, mode, position, full_quality, logo, title }) => {
     try {
       const r = await getImage(id); if (!r) throw new Error(`No image with id ${id}.`);
       if (preset === "custom" && !(width && height)) throw new Error("Custom size needs width and height.");
-      const out = await resizeAndSave(r, { preset, width: preset === "custom" ? width : undefined, height: preset === "custom" ? height : undefined, mode, position, full: full_quality, title });
+      const out = await resizeAndSave(r, { preset, width: preset === "custom" ? width : undefined, height: preset === "custom" ? height : undefined, mode, position, full: full_quality, logo, title });
       return resultFor([out.id], `Resized ${id} → ${out.width}×${out.height} (${mode}${out.notes.length ? "; " + out.notes.join("; ") : ""}; no generation cost).`);
     } catch (e) { return { isError: true, content: [{ type: "text", text: e.message }] }; }
   });
