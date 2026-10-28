@@ -29,6 +29,7 @@
 // Text in compose_email is drawn by sharp (Pango/fontconfig). The container has no system fontconfig file, so point
 // fontconfig at our own config (fonts/ in this repo) BEFORE sharp loads.
 process.env.FONTCONFIG_FILE = process.env.FONTCONFIG_FILE || require("path").join(__dirname, "fonts", "fonts.conf");
+try { require("fs").mkdirSync("/tmp/ad-studio-fontcache", { recursive: true }); } catch (e) {}
 const express = require("express");
 const crypto = require("crypto");
 const { Pool } = require("pg");

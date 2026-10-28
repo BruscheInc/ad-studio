@@ -99,7 +99,7 @@ async function textStack(b, W, S, defaults = {}) {
   const inner = Math.round(W - 2 * (b.pad_x ?? 0.09 * S));
   const pieces = [];
   if (b.eyebrow) pieces.push({ ...(await text(b.eyebrow.toUpperCase(), { font: "sans", weight: "SemiBold", size: Math.round(0.019 * S), color, width: inner, spacing: Math.round(0.006 * S) })), gap: Math.round(0.022 * S) });
-  if (b.script) pieces.push({ ...(await text(b.script, { font: "hand", weight: "Regular", size: Math.round(0.05 * S), color: col(b.accent, color), width: inner })), gap: Math.round(0.004 * S) });
+  if (b.script) pieces.push({ ...(await text(b.script, { font: "hand", weight: "Regular", size: Math.round(0.05 * S), color: col(b.accent, color), width: inner })), gap: Math.round(0.012 * S) });
   if (b.headline) pieces.push({ ...(await text(b.headline, { font: "serif", weight: b.headline_weight || "Regular", size: Math.round((b.headline_size || (defaults.headline_size || 0.072)) * S), color, width: inner, lineHeight: 0.95 })), gap: Math.round(0.026 * S) });
   if (b.body) pieces.push({ ...(await text(b.body, { font: "sans", weight: "Regular", size: Math.round((defaults.body_size || 0.026) * S), color, width: Math.min(inner, Math.round(0.78 * W)), lineHeight: 1.25 })), gap: Math.round(0.038 * S) });
   const btns = b.buttons || (b.button ? [b.button] : []);
