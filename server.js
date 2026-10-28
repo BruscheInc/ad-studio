@@ -36,6 +36,7 @@ const { enhance, hasAIUpscaler } = require("./enhance.js");
 const sharp = require("sharp");
 const { PRESETS, LOGOS, resizeImage, sizeSlug } = require("./social.js");
 const guard = require("./garment-guard.js");
+const { composeEmail, COLORS } = require("./compose.js");
 
 const VERSION = require("./package.json").version;
 const PORT = process.env.PORT || 8080;
@@ -636,6 +637,42 @@ function buildServer() {
       if (preset === "custom" && !(width && height)) throw new Error("Custom size needs width and height.");
       const out = await resizeAndSave(r, { preset, width: preset === "custom" ? width : undefined, height: preset === "custom" ? height : undefined, mode, position, full: full_quality, logo, title });
       return resultFor([out.id], `Resized ${id} → ${out.width}×${out.height} (${mode}${out.notes.length ? "; " + out.notes.join("; ") : ""}; no generation cost).`);
+    } catch (e) { return { isError: true, content: [{ type: "text", text: e.message }] }; }
+  });
+
+  server.registerTool("compose_email", {
+    title: "Lay out an email section (free, real type)",
+    description: `Build an email section the way real brand emails are made: existing photos placed in a clean layout with REAL fonts, buttons, colour panels and small hand-written callouts set in code — no AI generation, no cost. Use this for email pages instead of asking edit_image to paint headlines, stickers, doodles or buttons into a photo (that reads as AI). Photos should be clean shots with NO text in them. Width defaults to 1800; give height to pad/trim to an exact size (the result says the natural height so you can tune photo heights).
+Blocks are stacked top to bottom. Every size scales with the width. Colours: hex or ${Object.keys(COLORS).join(", ")}.
+• {type:"bar", text, bg?, color?} — thin promo strip.
+• {type:"logo", variant?:"dark-navy", width?:0.36, bg?} — Larkspur logo row.
+• {type:"text", eyebrow?, script?, headline?, body?, button?|buttons?, bg?, color?, headline_size?:0.072} — centred copy panel; "\\n" breaks lines; script = small hand-written line above the headline.
+• {type:"photo", image_id, height?: ratio of width (≤3) or px, focus_x?, focus_y?, zoom?, inset?: fraction of width, callouts?:[{text, x, y, arrow?: up|down|left|right|down-left|down-right|up-left|up-right, color?}], button?} — full-width (or inset) photo; callouts are thin hand-written notes with arrows (x,y = fractions of the photo; put them on plain background areas).
+• {type:"split", image_id, side:"left"|"right" (photo side), height?: ratio of half-width, eyebrow?, headline, body?, button?, bg?} — photo half + copy half (checkerboard rows).
+• {type:"pair", items:[{image_id, label?, sub?, button?, focus_y?}…2-3], ratio?:1.25, bg?} — product tiles side by side.
+• {type:"links", buttons:[…], button_bg?, bg?} — 2-column quick-link buttons.
+• {type:"spacer", height, bg?}.
+Buttons are a label string or {label, bg?, color?}.`,
+    inputSchema: {
+      blocks: z.array(z.object({ type: z.enum(["bar", "logo", "text", "photo", "split", "pair", "links", "spacer"]) }).passthrough()).min(1).max(30),
+      width: z.number().int().min(320).max(3000).default(1800),
+      height: z.number().int().min(100).max(12000).optional().describe("Exact output height; pads with the last block's colour or trims the bottom."),
+      format: z.enum(["jpeg", "png"]).default("jpeg"),
+      title: z.string().max(160).optional(),
+    },
+  }, async ({ blocks, width, height, format, title }) => {
+    try {
+      const ids = [];
+      const cache = {};
+      const getBytes = async (id) => {
+        if (!id) throw new Error("A photo block is missing image_id.");
+        if (!cache[id]) { const r = await getImage(id); if (!r) throw new Error(`No image with id ${id}.`); cache[id] = r; ids.push(id); }
+        return cache[id].bytes;
+      };
+      const out = await composeEmail({ width, height, blocks, format }, getBytes);
+      const first = cache[ids[0]] || {};
+      const nid = await saveImage({ kind: "edited", title: (title || `email-section-${out.width}x${out.height}`).slice(0, 160), prompt: null, model: "compose", size: `${out.width}x${out.height}`, quality: null, mime: out.mime, bytes: out.bytes, width: out.width, height: out.height, parents: ids, folder: first.folder || null, meta: { blocks, notes: out.notes, natural_height: out.natural_height } });
+      return resultFor([nid], `Composed ${out.width}×${out.height} from ${ids.length} photo${ids.length === 1 ? "" : "s"} (natural height ${out.natural_height}px${out.notes.length ? "; " + out.notes.join("; ") : ""}; no generation cost).`);
     } catch (e) { return { isError: true, content: [{ type: "text", text: e.message }] }; }
   });
 
