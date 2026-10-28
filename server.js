@@ -418,6 +418,21 @@ async function resultFor(ids, note) {
   content.unshift({ type: "text", text: `${note}\n${lines.join("\n")}\nUse an id above with edit_image to refine, or share the URL to download the full-resolution file.` });
   return { content };
 }
+async function runCompose({ blocks, width = 1800, height, format = "jpeg", title }) {
+  try {
+    const ids = [];
+    const cache = {};
+    const getBytes = async (id) => {
+      if (!id) throw new Error("A photo block is missing image_id.");
+      if (!cache[id]) { const r = await getImage(id); if (!r) throw new Error(`No image with id ${id}.`); cache[id] = r; ids.push(id); }
+      return cache[id].bytes;
+    };
+    const out = await composeEmail({ width, height, blocks, format }, getBytes);
+    const first = cache[ids[0]] || {};
+    const nid = await saveImage({ kind: "edited", title: (title || `email-section-${out.width}x${out.height}`).slice(0, 160), prompt: null, model: "compose", size: `${out.width}x${out.height}`, quality: null, mime: out.mime, bytes: out.bytes, width: out.width, height: out.height, parents: ids, folder: first.folder || null, meta: { blocks, notes: out.notes, natural_height: out.natural_height } });
+    return resultFor([nid], `Composed ${out.width}×${out.height} from ${ids.length} photo${ids.length === 1 ? "" : "s"} (natural height ${out.natural_height}px${out.notes.length ? "; " + out.notes.join("; ") : ""}; no generation cost).`);
+  } catch (e) { return { isError: true, content: [{ type: "text", text: `compose_email: ${e.message}` }] }; }
+}
 function buildServer() {
   const server = new McpServer({ name: "ad-studio", version: VERSION });
 
@@ -465,6 +480,12 @@ function buildServer() {
       title: z.string().max(120).optional(),
     },
   }, async ({ prompt, image_ids, mask_id, size, quality, n, input_fidelity, products, no_products, allow_created_source, title }) => {
+    // Clients with an older tool list can reach compose_email through edit_image: prompt = "COMPOSE EMAIL" + JSON spec. No AI cost.
+    const cm = /^\s*COMPOSE EMAIL\s*([\s\S]*)$/i.exec(prompt || "");
+    if (cm) {
+      let spec; try { spec = JSON.parse(cm[1]); } catch (e) { return { isError: true, content: [{ type: "text", text: `COMPOSE EMAIL: the spec after the first line must be JSON (${e.message}).` }] }; }
+      return runCompose({ title, ...spec });
+    }
     size = checkSize(size);
     try {
       // Clients with an older copy of this tool's schema can't send the new fields — accept them as prompt lines too:
@@ -660,21 +681,7 @@ Buttons are a label string or {label, bg?, color?}.`,
       format: z.enum(["jpeg", "png"]).default("jpeg"),
       title: z.string().max(160).optional(),
     },
-  }, async ({ blocks, width, height, format, title }) => {
-    try {
-      const ids = [];
-      const cache = {};
-      const getBytes = async (id) => {
-        if (!id) throw new Error("A photo block is missing image_id.");
-        if (!cache[id]) { const r = await getImage(id); if (!r) throw new Error(`No image with id ${id}.`); cache[id] = r; ids.push(id); }
-        return cache[id].bytes;
-      };
-      const out = await composeEmail({ width, height, blocks, format }, getBytes);
-      const first = cache[ids[0]] || {};
-      const nid = await saveImage({ kind: "edited", title: (title || `email-section-${out.width}x${out.height}`).slice(0, 160), prompt: null, model: "compose", size: `${out.width}x${out.height}`, quality: null, mime: out.mime, bytes: out.bytes, width: out.width, height: out.height, parents: ids, folder: first.folder || null, meta: { blocks, notes: out.notes, natural_height: out.natural_height } });
-      return resultFor([nid], `Composed ${out.width}×${out.height} from ${ids.length} photo${ids.length === 1 ? "" : "s"} (natural height ${out.natural_height}px${out.notes.length ? "; " + out.notes.join("; ") : ""}; no generation cost).`);
-    } catch (e) { return { isError: true, content: [{ type: "text", text: e.message }] }; }
-  });
+  }, async (args) => runCompose(args));
 
   server.registerTool("organize_images", {
     title: "Rename / file / favorite images",
