@@ -26,13 +26,37 @@ const LOGO_DIR = path.join(__dirname, "brand");
 const LOGOS = fs.existsSync(LOGO_DIR)
   ? fs.readdirSync(LOGO_DIR).filter((f) => /^larkspur-primary-.+\.svg$/.test(f)).map((f) => f.replace(/^larkspur-primary-|\.svg$/g, ""))
   : [];
-async function addLogo(buf, W, H, variant) {
+/** If the photo's own content (headline text etc.) starts inside the logo area, slide the whole picture down so there is
+ * clear space under the logo: the top is filled with a soft stretch of the image's own top edge (a plain wall) and the
+ * same amount is trimmed off the bottom. Returns { buf, shift }. */
+async function clearLogoZone(buf, W, H, logoBottom) {
+  const want = logoBottom + Math.round(W * 0.035);                 // first content row should start at least here
+  const { data, info } = await sharp(buf).removeAlpha().greyscale().raw().toBuffer({ resolveWithObject: true });
+  const x0 = Math.round(W * 0.2), x1 = Math.round(W * 0.8);
+  let ref = 0; for (let x = x0; x < x1; x++) ref += data[2 * info.width + x]; ref /= (x1 - x0);
+  let first = H;
+  for (let y = 4; y < Math.min(H, want + Math.round(W * 0.2)); y++) {
+    let dark = 0; for (let x = x0; x < x1; x++) if (Math.abs(data[y * info.width + x] - ref) > 45) dark++;
+    if (dark > (x1 - x0) * 0.004) { first = y; break; }
+  }
+  if (first >= want) return { buf, shift: 0 };
+  const shift = Math.min(want - first, Math.round(H * 0.12));
+  const strip = Math.max(6, Math.round(H * 0.01));
+  const fill = await sharp(buf).extract({ left: 0, top: 0, width: W, height: strip }).resize(W, shift + 40, { fit: "fill" }).blur(12).toBuffer();
+  const body = await sharp(buf).extract({ left: 0, top: 0, width: W, height: H - shift }).toBuffer();
+  const out = await sharp({ create: { width: W, height: H, channels: 3, background: "#ffffff" } })
+    .composite([{ input: fill, left: 0, top: 0 }, { input: body, left: 0, top: shift }]).png().toBuffer();
+  return { buf: out, shift };
+}
+async function addLogo(buf, W, H, variant, notes) {
   const file = path.join(LOGO_DIR, `larkspur-primary-${variant}.svg`);
   if (!fs.existsSync(file)) throw new Error(`Unknown logo "${variant}". Options: ${LOGOS.join(", ")}`);
   const lw = Math.round((W * 513) / 1364 / 0.995), lh = Math.round(lw / 5);
   const left = Math.round((W * 433) / 1364 - 0.0025 * lw), top = Math.round((W * 53) / 1364 - 0.02125 * lh);
+  const cleared = await clearLogoZone(buf, W, H, top + lh);
+  if (cleared.shift && notes) notes.push(`moved the picture down ${cleared.shift}px to clear the logo`);
   const logo = await sharp(file, { density: 600 }).resize(lw, lh).png().toBuffer();
-  return sharp(buf).composite([{ input: logo, left, top }]).toBuffer();
+  return sharp(cleared.buf).composite([{ input: logo, left, top }]).toBuffer();
 }
 
 const clampInt = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(v)));
@@ -96,7 +120,7 @@ async function resizeImage(bytes, opt, extendFn) {
   }
   const logo = opt.logo === "none" ? null : (opt.logo || (p && p.logo) || null);
   if (logo) {
-    out = await sharp(await addLogo(out, W, H, logo)).jpeg({ quality: 92, chromaSubsampling: "4:4:4" }).toBuffer();
+    out = await sharp(await addLogo(out, W, H, logo, notes)).jpeg({ quality: 92, chromaSubsampling: "4:4:4" }).toBuffer();
     notes.push(`logo: ${logo}`);
   }
   return { bytes: out, width: W, height: H, mime: "image/jpeg", mode, notes, full: !!opt.full };

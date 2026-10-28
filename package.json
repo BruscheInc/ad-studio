@@ -1,6 +1,6 @@
 {
   "name": "ad-studio",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "Ad Studio — image generation connector for Claude (OpenAI gpt-image), with an upload page and gallery.",
   "main": "server.js",
   "scripts": {
