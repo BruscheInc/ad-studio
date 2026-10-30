@@ -41,6 +41,7 @@ const sharp = require("sharp");
 const { PRESETS, LOGOS, resizeImage, sizeSlug } = require("./social.js");
 const guard = require("./garment-guard.js");
 const { composeEmail, COLORS } = require("./compose.js");
+const playbook = require("./playbook.js");
 
 const VERSION = require("./package.json").version;
 const PORT = process.env.PORT || 8080;
@@ -499,7 +500,9 @@ function buildServer() {
       if (pm && !(products && products.length)) products = pm[1].split("|").map((x) => x.trim()).filter(Boolean).map((x) => { const [name, size] = x.split("@").map((y) => y.trim()); return { name, size: size || undefined }; });
       if (/^\s*NO PRODUCTS\s*$/im.test(prompt)) no_products = true;
       if (/^\s*ALLOW CREATED SOURCE\s*$/im.test(prompt)) allow_created_source = true;
-      prompt = prompt.replace(/^\s*(PRODUCTS:.*|NO PRODUCTS|ALLOW CREATED SOURCE)\s*$/gim, "").trim();
+      const cm2 = prompt.match(/^\s*CONCEPT:\s*([\w-]+)\s*$/im);
+      prompt = prompt.replace(/^\s*(PRODUCTS:.*|NO PRODUCTS|ALLOW CREATED SOURCE|CONCEPT:.*)\s*$/gim, "").trim();
+      if (cm2) { const blk = playbook.conceptBlock(cm2[1]); if (!blk) throw new Error(`Unknown concept "${cm2[1]}". Options: ${playbook.CONCEPTS.map((c) => c.key).join(", ")}`); prompt += blk; }
       if (!no_products && !(products && products.length)) throw new Error("Product failsafe: list every Larkspur product in this image under products (exact store titles) — or a prompt line \"PRODUCTS: Title @size | Title @size\" — or set no_products=true / a line \"NO PRODUCTS\" if there are none.");
       const images = [];
       for (const id of image_ids) {
@@ -686,6 +689,12 @@ Buttons are a label string or {label, bg?, color?}.`,
       title: z.string().max(160).optional(),
     },
   }, async (args) => runCompose(args));
+
+  server.registerTool("ad_playbook", {
+    title: "Creative playbook for Meta ads",
+    description: "The creative playbook Ad Studio follows for ads, built from the top ads of Little Sleepies, Posh Peanut and Kyte Baby: rules (real-life look, one emotion per ad, no text painted on photos, funnel coverage) and concepts from soft/emotional to purchase intent, each with a scene recipe and copy formulas. Read it before planning ad creatives. Use a concept by adding a line \"CONCEPT: <key>\" to an edit_image prompt.",
+    inputSchema: { intent: z.enum(["soft", "mid", "purchase"]).optional().describe("Only concepts for this part of the funnel.") },
+  }, async ({ intent }) => ({ content: [{ type: "text", text: playbook.playbookText(intent) }] }));
 
   server.registerTool("organize_images", {
     title: "Rename / file / favorite images",
