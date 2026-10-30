@@ -696,6 +696,16 @@ Buttons are a label string or {label, bg?, color?}.`,
     inputSchema: { intent: z.enum(["soft", "mid", "purchase"]).optional().describe("Only concepts for this part of the funnel.") },
   }, async ({ intent }) => ({ content: [{ type: "text", text: playbook.playbookText(intent) }] }));
 
+  server.registerTool("export_image", {
+    title: "Hand over the full-size file",
+    description: "Return one stored image as the full-resolution file (JPEG, quality 92; PNGs are converted) so it can be saved and uploaded elsewhere (e.g. into Meta Ads Manager). Use get_image just to look at an image.",
+    inputSchema: { id: z.string() },
+  }, async ({ id }) => {
+    const r = await getImage(id); if (!r) return { isError: true, content: [{ type: "text", text: `No image with id ${id}.` }] };
+    const jpg = r.mime === "image/jpeg" ? r.bytes : await sharp(r.bytes).jpeg({ quality: 92, chromaSubsampling: "4:4:4" }).toBuffer();
+    return { content: [{ type: "text", text: `${id} — ${r.width}×${r.height} JPEG, ${Math.round(jpg.length / 1024)} KB — ${r.title || ""}` }, { type: "image", data: jpg.toString("base64"), mimeType: "image/jpeg" }] };
+  });
+
   server.registerTool("organize_images", {
     title: "Rename / file / favorite images",
     description: "Organize images in Ad Studio: move them into a folder (folder: \"\" to unfile), mark or unmark them as favorites, link them to a store product (product_url), or rename one image (title, only with a single id). Use when the user asks to file, star, link or rename images.",
