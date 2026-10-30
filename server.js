@@ -857,9 +857,15 @@ app.post("/api/folders/delete", async (req, res) => { if (!authed(req)) return r
 app.get("/api/version", (_q, r) => r.json({ version: VERSION, model: MODEL }));
 app.get("/health", (_q, r) => r.send("ok"));
 
-app.get("/", (req, res) => {
-  if (!authed(req)) return res.status(200).send(`<!doctype html><meta charset="utf-8"><title>Ad Studio</title><body style="font:15px system-ui;padding:40px;color:#333"><h2>Ad Studio</h2><p>Open this page with your key: <code>/?key=…</code> (the same token as in the connector URL).</p>`);
-  res.sendFile(require("path").join(__dirname, "public", "index.html"));
+app.get("/", (_req, res) => res.sendFile(require("path").join(__dirname, "public", "index.html")));   // the page asks for the key itself
+app.get("/api/usage", async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: "bad key" });
+  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+  const month = new Date(Date.now() - 30 * 864e5);
+  const [d, m] = [await countSince(today.toISOString()), await countSince(month.toISOString())];
+  const rows = await listImages(500);
+  const cost30 = rows.filter((r) => r.kind !== "upload" && !["format", "enhance", "resize", "compose"].includes(r.model) && new Date(r.created_at) >= month).reduce((s, r) => s + costHint(r.size, r.quality), 0);
+  res.json({ today: d, month: m, cap: MAX_PER_DAY, cost30, model: MODEL });
 });
 app.use(express.static(require("path").join(__dirname, "public"), { index: false }));
 
