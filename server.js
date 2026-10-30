@@ -42,6 +42,7 @@ const { PRESETS, LOGOS, resizeImage, sizeSlug } = require("./social.js");
 const guard = require("./garment-guard.js");
 const { composeEmail, COLORS } = require("./compose.js");
 const playbook = require("./playbook.js");
+const meta = require("./meta.js");
 
 const VERSION = require("./package.json").version;
 const PORT = process.env.PORT || 8080;
@@ -73,6 +74,12 @@ async function migrate() {
   await db(`ALTER TABLE ad_images ADD COLUMN IF NOT EXISTS product_url TEXT`);
   await db(`ALTER TABLE ad_images ADD COLUMN IF NOT EXISTS product_title TEXT`);
   await db(`CREATE TABLE IF NOT EXISTS ad_folders (name TEXT PRIMARY KEY, created_at TIMESTAMPTZ DEFAULT now())`);
+  // v1.12 — ad copy saved with the media it runs on
+  await db(`CREATE TABLE IF NOT EXISTS ad_copies (
+    id TEXT PRIMARY KEY, name TEXT, image_ids TEXT[] DEFAULT '{}', primary_text TEXT, headline TEXT, description TEXT,
+    cta TEXT, url TEXT, campaign TEXT, adset TEXT, status TEXT, concept TEXT, notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now())`);
+  for (const c of ["meta_ad_id", "meta_creative_id", "meta_adset_id", "meta_image_hash", "pushed_at"]) await db(`ALTER TABLE ad_copies ADD COLUMN IF NOT EXISTS ${c} TEXT`);
   console.log("🗄️  Ad Studio schema ready");
 }
 const newId = () => crypto.randomBytes(6).toString("base64url");
@@ -97,6 +104,61 @@ async function countSince(iso) {
   if (pool) return Number((await db(`SELECT count(*) FROM ad_images WHERE kind IN ('generated','edited') AND coalesce(model,'') NOT IN ('format','enhance','resize') AND created_at >= $1`, [iso])).rows[0].count);
   return [...mem.values()].filter((r) => r.kind !== "upload" && !["format", "enhance", "resize"].includes(r.model) && r.created_at >= iso).length;
 }
+/* ---------------- ad copy (v1.12) — primary text / headline / description saved with the media they run on ---------------- */
+const memAds = new Map();
+const AD_FIELDS = ["name", "image_ids", "primary_text", "headline", "description", "cta", "url", "campaign", "adset", "status", "concept", "notes", "meta_ad_id", "meta_creative_id", "meta_adset_id", "meta_image_hash", "pushed_at"];
+function cleanAd(a) {
+  const o = {};
+  for (const k of AD_FIELDS) if (a[k] !== undefined) o[k] = k === "image_ids" ? [...new Set((Array.isArray(a[k]) ? a[k] : String(a[k]).split(/[\s,]+/)).map(String).filter(Boolean))].slice(0, 10) : (a[k] == null ? null : String(a[k]).slice(0, k === "primary_text" || k === "notes" ? 4000 : 500));
+  return o;
+}
+async function saveAd(input) {
+  const a = cleanAd(input || {});
+  const id = input.id || newId();
+  const existing = input.id ? await getAd(input.id) : null;
+  if (input.id && !existing) throw new Error(`No ad copy with id ${input.id}.`);
+  const row = { ...(existing || { id, created_at: new Date().toISOString(), image_ids: [] }), ...a, id, updated_at: new Date().toISOString() };
+  if (pool) await db(`INSERT INTO ad_copies (id,name,image_ids,primary_text,headline,description,cta,url,campaign,adset,status,concept,notes,meta_ad_id,meta_creative_id,meta_adset_id,meta_image_hash,pushed_at,created_at,updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,coalesce($19::timestamptz, now()),now())
+      ON CONFLICT (id) DO UPDATE SET name=$2,image_ids=$3,primary_text=$4,headline=$5,description=$6,cta=$7,url=$8,campaign=$9,adset=$10,status=$11,concept=$12,notes=$13,meta_ad_id=$14,meta_creative_id=$15,meta_adset_id=$16,meta_image_hash=$17,pushed_at=$18,updated_at=now()`,
+    [id, row.name || null, row.image_ids || [], row.primary_text || null, row.headline || null, row.description || null, row.cta || null, row.url || null, row.campaign || null, row.adset || null, row.status || null, row.concept || null, row.notes || null, row.meta_ad_id || null, row.meta_creative_id || null, row.meta_adset_id || null, row.meta_image_hash || null, row.pushed_at || null, row.created_at || null]);
+  else memAds.set(id, row);
+  return getAd(id);
+}
+async function getAd(id) {
+  if (pool) return (await db(`SELECT * FROM ad_copies WHERE id=$1`, [id])).rows[0] || null;
+  return memAds.get(id) || null;
+}
+async function listAds({ image_id, campaign, limit = 500 } = {}) {
+  let rows = pool ? (await db(`SELECT * FROM ad_copies ORDER BY updated_at DESC LIMIT $1`, [limit])).rows : [...memAds.values()].sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1));
+  if (image_id) rows = rows.filter((r) => (r.image_ids || []).includes(image_id));
+  if (campaign) rows = rows.filter((r) => String(r.campaign || "").toLowerCase().includes(String(campaign).toLowerCase()));
+  return rows;
+}
+async function deleteAd(id) {
+  if (pool) return (await db(`DELETE FROM ad_copies WHERE id=$1`, [id])).rowCount;
+  return memAds.delete(id) ? 1 : 0;
+}
+/** Push a saved ad to Meta: uploads its first image, creates the creative and the ad (PAUSED unless status=ACTIVE). */
+async function pushSavedAd(id, { adset_id, adset_name, campaign_name, status = "PAUSED" } = {}) {
+  const a = await getAd(id); if (!a) throw new Error(`No ad copy with id ${id}.`);
+  if (a.meta_ad_id) throw new Error(`${a.name || id} is already in Meta (ad ${a.meta_ad_id}).`);
+  const imgId = (a.image_ids || [])[0]; if (!imgId) throw new Error("This ad has no media attached.");
+  const img = await getImage(imgId); if (!img) throw new Error(`Image ${imgId} is gone.`);
+  const bytes = img.mime === "image/jpeg" ? img.bytes : await sharp(img.bytes).jpeg({ quality: 92, chromaSubsampling: "4:4:4" }).toBuffer();
+  const isAi = img.kind !== "upload" || isCreatedImage(img);
+  const r = await meta.pushAd({ ad: a, image: { bytes, filename: `${(img.title || imgId).replace(/[^\w.-]+/g, "-").slice(0, 80)}.jpg` }, adsetId: adset_id, status, aiDisclosure: isAi });
+  const saved = await saveAd({ id, meta_ad_id: r.ad_id, meta_creative_id: r.creative_id, meta_adset_id: adset_id, meta_image_hash: r.image_hash, pushed_at: new Date().toISOString(), status: r.status === "ACTIVE" ? "live" : "paused", ...(adset_name ? { adset: adset_name } : {}), ...(campaign_name ? { campaign: campaign_name } : {}) });
+  return { ad: saved, ...r, ai: isAi };
+}
+function adText(a) {
+  return [`${a.id}${a.name ? ` — ${a.name}` : ""}${a.status ? ` [${a.status}]` : ""}`,
+    a.campaign || a.adset ? `  where: ${[a.campaign, a.adset].filter(Boolean).join(" › ")}` : null,
+    `  media: ${(a.image_ids || []).join(", ") || "—"}`,
+    `  primary text: ${a.primary_text || "—"}`, `  headline: ${a.headline || "—"}`, `  description: ${a.description || "—"}`,
+    a.meta_ad_id ? `  in Meta: ad ${a.meta_ad_id}` : null, a.cta ? `  CTA: ${a.cta}` : null, a.url ? `  link: ${a.url}` : null, a.concept ? `  concept: ${a.concept}` : null, a.notes ? `  notes: ${a.notes}` : null].filter(Boolean).join("\n");
+}
+
 /* ---------------- organizing (v1.6) ---------------- */
 const memFolders = new Set();
 const cleanFolder = (f) => (f == null || String(f).trim() === "" ? null : String(f).trim().slice(0, 60));
@@ -491,7 +553,13 @@ function buildServer() {
     },
   }, async ({ prompt, image_ids, mask_id, size, quality, n, input_fidelity, products, no_products, allow_created_source, title }) => {
     // Clients with an older tool list can reach compose_email through edit_image: prompt = "COMPOSE EMAIL" + JSON spec. No AI cost.
-    if (/^\s*EXPORT FILE\s*$/i.test(prompt || "")) return exportFile(image_ids[0]);   // older clients: hand over the full-size file, no AI cost
+    if (/^\s*EXPORT FILE\s*$/i.test(prompt || "")) return exportFile(image_ids[0]);
+    const sa = /^\s*SAVE ADS?\s*([\s\S]*)$/i.exec(prompt || "");      // older clients: prompt "SAVE AD" + JSON object or array
+    if (sa) {
+      try { let spec = JSON.parse(sa[1]); if (!Array.isArray(spec)) spec = [spec]; const out = []; for (const x of spec) out.push(adText(await saveAd(x))); return { content: [{ type: "text", text: `Saved ${out.length} ad cop${out.length === 1 ? "y" : "ies"}:\n\n${out.join("\n\n")}` }] }; }
+      catch (e) { return { isError: true, content: [{ type: "text", text: `SAVE AD: ${e.message}` }] }; }
+    }
+    if (/^\s*LIST ADS\s*$/i.test(prompt || "")) { const rows = await listAds({}); return { content: [{ type: "text", text: rows.length ? rows.map(adText).join("\n\n") : "No saved ad copy yet." }] }; }   // older clients: hand over the full-size file, no AI cost
     const cm = /^\s*COMPOSE EMAIL\s*([\s\S]*)$/i.exec(prompt || "");
     if (cm) {
       let spec; try { spec = JSON.parse(cm[1]); } catch (e) { return { isError: true, content: [{ type: "text", text: `COMPOSE EMAIL: the spec after the first line must be JSON (${e.message}).` }] }; }
@@ -712,6 +780,53 @@ Buttons are a label string or {label, bg?, color?}.`,
     return { content: [{ type: "text", text: `${id} — ${r.width}×${r.height} JPEG, ${Math.round(jpg.length / 1024)} KB — ${r.title || ""}` }, { type: "image", data: jpg.toString("base64"), mimeType: "image/jpeg" }] };
   });
 
+  server.registerTool("save_ad", {
+    title: "Save ad copy with its media",
+    description: "Save (or update, by id) the copy of an ad together with the Ad Studio image(s) it runs on, so Ad Studio's Ads page shows each piece of media with its primary text, headline and description. Use it every time ad copy is written for an image, and after an ad is created or launched in Ads Manager (fill name, campaign, ad set and status).",
+    inputSchema: {
+      id: z.string().optional().describe("Existing ad-copy id to update; leave out to create."),
+      image_ids: z.array(z.string()).max(10).optional().describe("Ad Studio image ids the ad uses (e.g. the 4:5 feed image first)."),
+      name: z.string().max(160).optional().describe("Ad name, e.g. 'Oct 29 - 1'."),
+      primary_text: z.string().max(4000).optional(), headline: z.string().max(500).optional(), description: z.string().max(500).optional(),
+      cta: z.string().max(60).optional().describe("Call to action, e.g. Shop now."), url: z.string().max(500).optional(),
+      campaign: z.string().max(200).optional(), adset: z.string().max(200).optional(),
+      status: z.enum(["idea", "draft", "live", "paused", "off"]).optional(), concept: z.string().max(60).optional().describe("Playbook concept key."),
+      notes: z.string().max(4000).optional(),
+    },
+  }, async (args) => {
+    try { const a = await saveAd(args); return { content: [{ type: "text", text: `Saved ad copy:\n${adText(a)}` }] }; }
+    catch (e) { return { isError: true, content: [{ type: "text", text: e.message }] }; }
+  });
+
+  server.registerTool("meta_campaigns", {
+    title: "Meta campaigns and ad sets",
+    description: "List the Meta ad account's active/paused campaigns, or the ad sets of one campaign (give campaign_id). Use before push_ad to find the ad set id.",
+    inputSchema: { campaign_id: z.string().optional() },
+  }, async ({ campaign_id }) => {
+    try {
+      if (campaign_id) { const rows = await meta.adsets(campaign_id); return { content: [{ type: "text", text: rows.map((x) => `${x.id}  ${x.name}  [${x.effective_status}]`).join("\n") || "No ad sets." }] }; }
+      const rows = await meta.campaigns(); return { content: [{ type: "text", text: rows.map((x) => `${x.id}  ${x.name}  [${x.effective_status}]`).join("\n") || "No campaigns." }] };
+    } catch (e) { return { isError: true, content: [{ type: "text", text: e.message }] }; }
+  });
+
+  server.registerTool("push_ad", {
+    title: "Push a saved ad to Meta",
+    description: "Create a saved ad (save_ad) in Meta Ads Manager inside an existing ad set: uploads its image, creates the creative with its primary text, headline, description, CTA and link, and creates the ad. Created PAUSED by default — only pass status ACTIVE when the user explicitly asked to launch, because ACTIVE ads start spending. AI-made images are flagged as AI media.",
+    inputSchema: { ad_copy_id: z.string(), adset_id: z.string(), status: z.enum(["PAUSED", "ACTIVE"]).default("PAUSED") },
+  }, async ({ ad_copy_id, adset_id, status }) => {
+    try { const r = await pushSavedAd(ad_copy_id, { adset_id, status }); return { content: [{ type: "text", text: `Created in Meta: ad ${r.ad_id} (${r.status})${r.disclosure_skipped ? " — tick 'AI media' in Ads Manager, the API didn't accept the flag" : ""}.\n${adText(r.ad)}` }] }; }
+    catch (e) { return { isError: true, content: [{ type: "text", text: e.message }] }; }
+  });
+
+  server.registerTool("list_ads", {
+    title: "List saved ad copy",
+    description: "Saved ads with their media, primary text, headline, description, campaign and status. Filter by an image id or a campaign name.",
+    inputSchema: { image_id: z.string().optional(), campaign: z.string().optional() },
+  }, async ({ image_id, campaign }) => {
+    const rows = await listAds({ image_id, campaign });
+    return { content: [{ type: "text", text: rows.length ? rows.map(adText).join("\n\n") : "No saved ad copy yet." }] };
+  });
+
   server.registerTool("organize_images", {
     title: "Rename / file / favorite images",
     description: "Organize images in Ad Studio: move them into a folder (folder: \"\" to unfile), mark or unmark them as favorites, link them to a store product (product_url), or rename one image (title, only with a single id). Use when the user asks to file, star, link or rename images.",
@@ -880,6 +995,14 @@ app.get("/api/folders", async (req, res) => { if (!authed(req)) return res.statu
 app.post("/api/folders", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); const n = cleanFolder((req.body || {}).name); if (!n) return res.status(400).json({ error: "Give the folder a name." }); await ensureFolder(n); res.json({ ok: true, name: n }); });
 app.post("/api/folders/rename", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); try { await renameFolder(req.body.from, req.body.to); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
 app.post("/api/folders/delete", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); await deleteFolder((req.body || {}).name); res.json({ ok: true }); });
+app.get("/api/ads", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); res.json({ ads: await listAds({ image_id: req.query.image_id, campaign: req.query.campaign }) }); });
+app.post("/api/ads", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); try { res.json({ ok: true, ad: await saveAd(req.body || {}) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.delete("/api/ads/:id", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); res.json({ ok: true, deleted: await deleteAd(req.params.id) }); });
+app.get("/api/meta/status", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); res.json(await meta.status()); });
+app.get("/api/meta/campaigns", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); try { res.json({ campaigns: await meta.campaigns() }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get("/api/meta/adsets", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); try { res.json({ adsets: await meta.adsets(String(req.query.campaign || "")) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post("/api/ads/:id/push", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); try { const b = req.body || {}; res.json({ ok: true, ...(await pushSavedAd(req.params.id, { adset_id: b.adset_id, adset_name: b.adset_name, campaign_name: b.campaign_name, status: b.status })) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get("/api/ads/insights", async (req, res) => { if (!authed(req)) return res.status(401).json({ error: "bad key" }); try { const ids = (await listAds({})).map((a) => a.meta_ad_id).filter(Boolean); res.json({ insights: meta.configured() ? await meta.adInsights(ids) : {} }); } catch (e) { res.status(400).json({ error: e.message }); } });
 app.get("/api/version", (_q, r) => r.json({ version: VERSION, model: MODEL }));
 app.get("/health", (_q, r) => r.send("ok"));
 

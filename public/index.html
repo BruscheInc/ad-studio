@@ -155,6 +155,40 @@
   .empty{color:var(--bz-muted);font-size:13.5px;padding:28px 8px;text-align:center}
   .empty .ti{display:block;margin:0 auto 8px;font-size:28px;color:var(--bz-faint)}
 
+  /* ---- ads ---- */
+  .meta-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#fff;border:1px solid var(--bz-line);border-radius:var(--bz-r-lg);padding:10px 14px;box-shadow:var(--bz-sh-1);margin-bottom:16px;font-size:13px}
+  .meta-bar .dot{width:9px;height:9px;border-radius:50%;background:var(--bz-faint)}.meta-bar .dot.ok{background:var(--bz-ok)}.meta-bar .dot.bad{background:var(--bz-warn)}
+  .meta-bar .r{margin-left:auto;display:flex;gap:8px}
+  .agroup{display:grid;grid-template-columns:220px minmax(0,1fr);gap:16px;background:#fff;border:1px solid var(--bz-line);border-radius:var(--bz-r-lg);padding:14px;box-shadow:var(--bz-sh-1);margin-bottom:14px}
+  @media (max-width:760px){.agroup{grid-template-columns:1fr}}
+  .agroup .media{display:flex;flex-direction:column;gap:6px}
+  .agroup .media img{width:100%;aspect-ratio:4/5;object-fit:cover;border-radius:var(--bz-r);background:var(--bz-sunk);cursor:zoom-in;border:1px solid var(--bz-line)}
+  .agroup .media .more-m{display:flex;gap:4px}.agroup .media .more-m img{width:44px;aspect-ratio:1;border-radius:6px}
+  .agroup .media .mt{font-size:12px;color:var(--bz-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .acopies{display:flex;flex-direction:column;gap:12px}
+  .acopy{border:1px solid var(--bz-line);border-radius:var(--bz-r);padding:12px 14px}
+  .acopy .ah{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  .acopy .ah b{font-size:14.5px}
+  .acopy .ah .where{font-size:12px;color:var(--bz-muted)}
+  .acopy .ah .tools{margin-left:auto;display:flex;gap:6px}
+  .st{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--bz-sunk);color:var(--bz-muted);text-transform:capitalize}
+  .st.live{background:var(--bz-ok-soft);color:var(--bz-ok)}.st.paused{background:var(--bz-warn-soft);color:var(--bz-warn)}.st.draft,.st.idea{background:var(--bz-blue-soft);color:var(--bz-blue-ink)}
+  .fld{display:grid;grid-template-columns:96px minmax(0,1fr) 30px;gap:8px;align-items:start;padding:6px 0;border-top:1px dashed var(--bz-line);font-size:13.5px}
+  .fld:first-of-type{border-top:0}
+  .fld .k{font-size:12px;font-weight:700;color:var(--bz-muted);padding-top:2px}
+  .fld .v{white-space:pre-wrap;word-break:break-word}.fld .v.none{color:var(--bz-faint)}
+  .fld .cp{border:0;background:none;cursor:pointer;color:var(--bz-faint);padding:2px;border-radius:6px}.fld .cp:hover{color:var(--bz-ink);background:var(--bz-hover)}
+  .stats{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--bz-line);font-size:12.5px;color:var(--bz-muted)}
+  .stats b{color:var(--bz-ink);font-variant-numeric:tabular-nums}
+  .form{padding:16px;display:grid;gap:12px}
+  .form label{display:grid;gap:5px;font-size:12.5px;font-weight:700;color:var(--bz-ink-2)}
+  .form textarea{min-height:90px;border:1px solid var(--bz-line);border-radius:var(--bz-r);padding:9px 11px;resize:vertical}
+  .form .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .pickm{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:6px;max-height:220px;overflow:auto;padding:2px}
+  .pickm img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:7px;cursor:pointer;border:2px solid transparent}
+  .pickm img.on{border-color:var(--bz-ink)}
+  .mfoot{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--bz-line)}
+
   /* ---- home ---- */
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
   .kpi{background:#fff;border:1px solid var(--bz-line);border-radius:var(--bz-r-lg);padding:14px 16px;box-shadow:var(--bz-sh-1)}
@@ -264,6 +298,7 @@
   <a class="rlogo" href="#" data-v="home" title="Ad Studio"><img src="/logo.svg" alt="Ad Studio"><small class="rver" id="ver"></small></a>
   <div class="rmods">
     <button class="ri" data-v="home"><i class="ti ti-home"></i><span>Home</span></button>
+    <button class="ri" data-v="ads"><i class="ti ti-speakerphone"></i><span>Ads</span><b class="rb" id="bAds" hidden></b></button>
     <button class="ri" data-v="library"><i class="ti ti-layout-columns"></i><span>Library</span></button>
     <button class="ri" data-v="made"><i class="ti ti-sparkles"></i><span>Created</span><b class="rb" id="bMade" hidden></b></button>
     <button class="ri" data-v="uploads"><i class="ti ti-cloud-upload"></i><span>Uploads</span></button>
@@ -282,6 +317,7 @@
 
 <main>
   <section id="home"></section>
+  <section id="adsView" hidden></section>
 
   <section id="lib">
     <div class="drop" id="drop"><span class="ic"><i class="ti ti-photo-plus"></i></span><div><b>Drop photos here</b> or click to choose (PNG, JPEG or WebP). Each one gets an id you or Claude can use.</div><input type="file" id="file" accept="image/png,image/jpeg,image/webp" multiple style="display:none"></div>
@@ -393,6 +429,7 @@ function visible(side) {
 
 /* ---------- render ---------- */
 const VIEWS = {
+  ads: { t: "Ads", s: "Every ad with its media, primary text, headline and description, and a push to Meta" },
   home: { t: "Home", s: "What's new in Ad Studio" },
   library: { t: "Library", s: "Uploads on the left, everything Claude made on the right" },
   made: { t: "Created", s: "Images Claude generated, edited, resized or laid out" },
@@ -410,8 +447,10 @@ function render() {
   const V = VIEWS[S.view] || VIEWS.home;
   $("vTitle").textContent = V.t; $("vSub").textContent = V.s;
   document.querySelectorAll(".rail [data-v]").forEach((b) => b.classList.toggle("on", b.dataset.v === S.view && !b.classList.contains("rlogo")));
-  const home = S.view === "home";
-  $("home").hidden = !home; $("lib").hidden = home;
+  const home = S.view === "home", adsV = S.view === "ads";
+  $("home").hidden = !home; $("adsView").hidden = !adsV; $("lib").hidden = home || adsV;
+  $("upBtn").innerHTML = adsV ? '<i class="ti ti-plus"></i>New ad' : '<i class="ti ti-upload"></i>Upload';
+  if (adsV) { renderAds(); $("total").textContent = (S.ads || []).length + " ads"; return; }
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const newToday = S.images.filter((i) => i.kind !== "upload" && new Date(i.created_at) >= today).length;
   $("bMade").hidden = !newToday; $("bMade").textContent = newToday;
@@ -573,6 +612,11 @@ document.addEventListener("click", (e) => {
   const g = (sel) => t.closest(sel);
   let el;
   if ((el = g(".rail [data-v]"))) { e.preventDefault(); setView(el.dataset.v); return; }
+  if ((el = g("[data-cp]"))) { navigator.clipboard.writeText(el.dataset.cp); toast("Copied"); return; }
+  if ((el = g("[data-adedit]"))) { openAdEditor(el.dataset.adedit); return; }
+  if ((el = g("[data-adpush]"))) { openPush(el.dataset.adpush); return; }
+  if ((el = g("[data-addel]"))) { delAd(el.dataset.addel); return; }
+  if ((el = g("[data-adnew]"))) { openAdEditor(null, el.dataset.adnew); return; }
   if ((el = g("[data-go]"))) { setView(el.dataset.go); return; }
   if ((el = g("[data-star]"))) { const i = byId(el.dataset.star); patch([i.id], { favorite: !i.favorite }); return; }
   if ((el = g("[data-view]"))) { openViewer(el.dataset.view); return; }
@@ -649,7 +693,7 @@ async function upload(files) {
   }
   load(true);
 }
-$("upBtn").onclick = () => $("file").click();
+$("upBtn").onclick = () => (S.view === "ads" ? openAdEditor(null) : $("file").click());
 const drop = $("drop"); drop.onclick = () => $("file").click(); $("file").onchange = (e) => upload(e.target.files);
 drop.ondragover = (e) => { if (S.dragIds) return; e.preventDefault(); drop.classList.add("on"); };
 drop.ondragleave = () => drop.classList.remove("on");
@@ -841,6 +885,101 @@ async function saveResize() {
 
 window.addEventListener("resize", () => { if (R && document.querySelector("#rImg")) layoutCrop(); });
 
+/* ---------- ads (copy + media + push to Meta) ---------- */
+S.ads = []; S.meta = null; S.ins = {};
+async function loadAds() {
+  try { S.ads = (await api("/api/ads")).ads || []; } catch (e) { return; }
+  const b = $("bAds"); const drafts = S.ads.filter((a) => !a.meta_ad_id && !["live", "paused", "off"].includes(a.status)).length; b.hidden = !drafts; b.textContent = drafts;
+  if (S.view === "ads") renderAds();
+  if (!S.meta) { try { S.meta = await api("/api/meta/status"); } catch (e) { S.meta = { connected: false, reason: e.message }; } if (S.view === "ads") renderAds(); }
+  if (S.meta && S.meta.connected && S.ads.some((a) => a.meta_ad_id)) { try { S.ins = (await api("/api/ads/insights")).insights || {}; if (S.view === "ads") renderAds(); } catch (e) {} }
+}
+const money = (n) => "$" + (Number(n) || 0).toFixed(2);
+function fld(k, v) { const has = v != null && String(v).trim() !== ""; return `<div class="fld"><div class="k">${k}</div><div class="v${has ? "" : " none"}">${has ? esc(v) : "—"}</div>${has ? `<button class="cp" data-cp="${esc(v)}" title="Copy"><i class="ti ti-copy"></i></button>` : "<span></span>"}</div>`; }
+function renderAds() {
+  const m = S.meta;
+  const bar = !m ? `<div class="meta-bar"><span class="dot"></span>Checking Meta connection…</div>`
+    : m.connected ? `<div class="meta-bar"><span class="dot ok"></span><b>Meta connected</b><span class="count">${esc(m.account.name || m.account.id)}${m.page_name ? " · " + esc(m.page_name) : ""}</span><div class="r"><button class="btn xs" id="adsRefresh"><i class="ti ti-refresh"></i>Refresh results</button></div></div>`
+    : `<div class="meta-bar"><span class="dot bad"></span><b>Meta not connected</b><span class="count">${esc(m.reason || "")}. Add a System User token as META_ACCESS_TOKEN and the ad account id as META_AD_ACCOUNT_ID in Railway → ad-studio → Variables.</span></div>`;
+  const groups = new Map();
+  for (const a of S.ads) { const k = (a.image_ids || [])[0] || "__none"; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(a); }
+  const blocks = [...groups].map(([img, ads]) => {
+    const i = byId(img);
+    const extra = (ads[0].image_ids || []).slice(1);
+    const media = img === "__none" ? `<div class="empty" style="padding:20px 0">No media</div>`
+      : `<img src="/thumb/${img}?s=480" data-view="${img}" alt="" loading="lazy">${extra.length ? `<div class="more-m">${extra.map((x) => `<img src="/thumb/${x}?s=160" data-view="${x}" alt="">`).join("")}</div>` : ""}<div class="mt" title="${esc(i ? i.title : img)}">${esc(i ? i.title : img)}</div><div class="r"><code class="id" data-copy="${img}">${img}</code><button class="btn xs" data-adnew="${img}"><i class="ti ti-plus"></i>Copy version</button></div>`;
+    const copies = ads.map((a) => {
+      const ins = a.meta_ad_id && S.ins[a.meta_ad_id];
+      const st = ins && ins.status ? (ins.status === "ACTIVE" ? "live" : ins.status.toLowerCase().replace(/_/g, " ")) : a.status || (a.meta_ad_id ? "paused" : "draft");
+      return `<div class="acopy"><div class="ah"><b>${esc(a.name || "Untitled ad")}</b><span class="st ${esc(st)}">${esc(st)}</span>${a.campaign || a.adset ? `<span class="where">${esc([a.campaign, a.adset].filter(Boolean).join(" › "))}</span>` : ""}
+        <div class="tools"><button class="btn xs" data-adedit="${a.id}"><i class="ti ti-pencil"></i>Edit</button>${a.meta_ad_id ? `<span class="btn xs ghost" title="Meta ad id"><i class="ti ti-brand-meta"></i>${esc(a.meta_ad_id)}</span>` : ["live", "paused", "off"].includes(a.status) ? `<span class="btn xs ghost" title="Already in Ads Manager"><i class="ti ti-brand-meta"></i>In Meta</span>` : `<button class="btn xs primary" data-adpush="${a.id}"><i class="ti ti-send"></i>Push to Meta</button>`}<button class="btn xs ghost" data-addel="${a.id}" title="Delete"><i class="ti ti-trash"></i></button></div></div>
+        ${fld("Primary text", a.primary_text)}${fld("Headline", a.headline)}${fld("Description", a.description)}${fld("Button", a.cta)}${fld("Link", a.url)}
+        ${ins && !ins.error ? `<div class="stats"><span>Spend <b>${money(ins.spend)}</b></span><span>Impressions <b>${(ins.impressions || 0).toLocaleString()}</b></span><span>CTR <b>${(ins.ctr || 0).toFixed(2)}%</b></span><span>Purchases <b>${ins.purchases || 0}</b></span><span>ROAS <b>${ins.roas != null ? ins.roas.toFixed(2) : "—"}</b></span></div>` : ""}</div>`;
+    }).join("");
+    return `<div class="agroup"><div class="media">${media}</div><div class="acopies">${copies}</div></div>`;
+  }).join("");
+  $("adsView").innerHTML = bar + (blocks || `<div class="empty"><i class="ti ti-speakerphone"></i>No ads yet. Click <b>New ad</b>, or ask Claude to write ad copy for an image.</div>`);
+  if (S.view === "ads") $("total").textContent = S.ads.length + " ad" + (S.ads.length === 1 ? "" : "s");
+  const rf = $("adsRefresh"); if (rf) rf.onclick = () => { S.ins = {}; loadAds(); toast("Refreshing results…"); };
+}
+function openAdEditor(id, presetImg) {
+  closeModal();
+  const a = id ? S.ads.find((x) => x.id === id) : { image_ids: presetImg ? [presetImg] : [], cta: "Shop now", url: "https://larkspurbaby.com/collections/holiday", status: "draft" };
+  const sel = new Set(a.image_ids || []);
+  const recent = S.images.filter((i) => i.kind !== "upload" || sel.has(i.id)).slice(0, 60);
+  const m = modal(`<div class="modal-h"><h3>${id ? "Edit ad" : "New ad"}</h3><button class="btn x" id="aX"><i class="ti ti-x"></i></button></div>
+    <div class="form">
+      <label>Media <span class="hint" style="font-weight:500">Click to pick (first picked is the main image)</span><div class="pickm" id="aPick">${recent.map((i) => `<img src="/thumb/${i.id}?s=160" data-pk="${i.id}" class="${sel.has(i.id) ? "on" : ""}" title="${esc(i.title || i.id)}">`).join("")}</div></label>
+      <div class="two"><label>Ad name<input type="text" id="aName" value="${esc(a.name || "")}" placeholder="Oct 30 - 1"></label><label>Status<select id="aSt">${["idea", "draft", "live", "paused", "off"].map((x) => `<option ${a.status === x ? "selected" : ""}>${x}</option>`).join("")}</select></label></div>
+      <label>Primary text<textarea id="aPT">${esc(a.primary_text || "")}</textarea></label>
+      <label>Headline<input type="text" id="aHL" value="${esc(a.headline || "")}"></label>
+      <label>Description<input type="text" id="aDS" value="${esc(a.description || "")}"></label>
+      <div class="two"><label>Button<select id="aCTA">${["Shop now", "Learn more", "See details", "Order now", "Get offer", "Buy now", "See more"].map((x) => `<option ${a.cta === x ? "selected" : ""}>${x}</option>`).join("")}</select></label><label>Link<input type="text" id="aURL" value="${esc(a.url || "")}"></label></div>
+      <div class="two"><label>Campaign<input type="text" id="aCamp" value="${esc(a.campaign || "")}"></label><label>Ad set<input type="text" id="aSet" value="${esc(a.adset || "")}"></label></div>
+    </div>
+    <div class="mfoot"><button class="btn" id="aCancel">Cancel</button><button class="btn primary" id="aSave"><i class="ti ti-check"></i>Save</button></div>`);
+  m.style.maxWidth = "720px";
+  const order = [...sel];
+  m.querySelector("#aPick").onclick = (e) => { const t = e.target.closest("[data-pk]"); if (!t) return; const k = t.dataset.pk; if (sel.has(k)) { sel.delete(k); order.splice(order.indexOf(k), 1); } else { sel.add(k); order.push(k); } t.classList.toggle("on", sel.has(k)); };
+  m.querySelector("#aX").onclick = m.querySelector("#aCancel").onclick = closeModal;
+  m.querySelector("#aSave").onclick = async () => {
+    const body = { ...(id ? { id } : {}), image_ids: order, name: $("aName").value.trim(), status: $("aSt").value, primary_text: $("aPT").value, headline: $("aHL").value, description: $("aDS").value, cta: $("aCTA").value, url: $("aURL").value.trim(), campaign: $("aCamp").value, adset: $("aSet").value };
+    try { await post("/api/ads", body); closeModal(); toast("Ad saved"); loadAds(); } catch (e) { toast(e.message); }
+  };
+}
+async function openPush(id) {
+  closeModal();
+  const a = S.ads.find((x) => x.id === id);
+  if (!S.meta || !S.meta.connected) { toast("Connect Meta first (see the bar on the Ads page)"); return; }
+  const m = modal(`<div class="modal-h"><h3>Push “${esc(a.name || "ad")}” to Meta</h3><button class="btn x" id="pX"><i class="ti ti-x"></i></button></div>
+    <div class="form">
+      <label>Campaign<select id="pCamp"><option value="">Loading…</option></select></label>
+      <label>Ad set<select id="pSet" disabled><option value="">Pick a campaign first</option></select></label>
+      <label>Start as<select id="pSt"><option value="PAUSED" selected>Paused — review in Ads Manager, then turn on</option><option value="ACTIVE">Active — starts spending right away</option></select></label>
+      <div class="hint">Uploads the main image, creates the creative with this primary text, headline, description, button and link, and adds the ad to the ad set. AI-made images are flagged as AI media.</div>
+    </div>
+    <div class="mfoot"><button class="btn" id="pCancel">Cancel</button><button class="btn primary" id="pGo" disabled><i class="ti ti-send"></i>Push</button></div>`);
+  m.style.maxWidth = "560px";
+  m.querySelector("#pX").onclick = m.querySelector("#pCancel").onclick = closeModal;
+  const cs = m.querySelector("#pCamp"), ss = m.querySelector("#pSet"), go = m.querySelector("#pGo");
+  try { const c = (await api("/api/meta/campaigns")).campaigns || []; cs.innerHTML = `<option value="">Pick a campaign…</option>` + c.map((x) => `<option value="${x.id}" ${a.campaign && x.name === a.campaign ? "selected" : ""}>${esc(x.name)} (${esc(x.effective_status.toLowerCase())})</option>`).join(""); } catch (e) { cs.innerHTML = `<option>${esc(e.message)}</option>`; }
+  cs.onchange = async () => { ss.disabled = true; go.disabled = true; if (!cs.value) return; ss.innerHTML = "<option>Loading…</option>"; try { const s2 = (await api("/api/meta/adsets?campaign=" + cs.value)).adsets || []; ss.innerHTML = `<option value="">Pick an ad set…</option>` + s2.map((x) => `<option value="${x.id}" ${a.adset && x.name === a.adset ? "selected" : ""}>${esc(x.name)} (${esc(x.effective_status.toLowerCase())})</option>`).join(""); ss.disabled = false; go.disabled = !ss.value; } catch (e) { ss.innerHTML = `<option>${esc(e.message)}</option>`; } };
+  if (cs.value) cs.onchange();
+  ss.onchange = () => { go.disabled = !ss.value; };
+  go.onclick = async () => {
+    const st = m.querySelector("#pSt").value;
+    if (st === "ACTIVE" && !confirm("Create this ad ACTIVE? It will start spending as soon as Meta approves it.")) return;
+    go.disabled = true; go.innerHTML = '<i class="ti ti-refresh"></i>Pushing…';
+    try { const r = await post(`/api/ads/${id}/push`, { adset_id: ss.value, adset_name: ss.options[ss.selectedIndex].text.replace(/ \(.*\)$/, ""), campaign_name: cs.options[cs.selectedIndex].text.replace(/ \(.*\)$/, ""), status: st }); closeModal(); toast(`In Meta as ad ${r.ad_id} (${r.status.toLowerCase()})` + (r.disclosure_skipped ? " — tick the AI media box in Ads Manager" : "")); loadAds(); }
+    catch (e) { toast(e.message); go.disabled = false; go.innerHTML = '<i class="ti ti-send"></i>Push'; }
+  };
+}
+async function delAd(id) {
+  const a = S.ads.find((x) => x.id === id);
+  if (!confirm(`Delete the saved copy for “${a && a.name || id}”? ${a && a.meta_ad_id ? "The ad stays in Meta." : ""}`)) return;
+  try { await api("/api/ads/" + id, { method: "DELETE" }); toast("Deleted"); loadAds(); } catch (e) { toast(e.message); }
+}
+
 /* ---------- sign in ---------- */
 function showGate(msg) { $("gate").classList.remove("hidden"); $("gateErr").textContent = msg || ""; setTimeout(() => $("gateKey").focus(), 30); }
 $("gateForm").onsubmit = async (e) => {
@@ -857,8 +996,8 @@ let booted = false;
 function boot() {
   fetch("/api/version").then((r) => r.json()).then((v) => { $("ver").textContent = "v" + v.version; }).catch(() => {});
   if (!VIEWS[S.view]) S.view = "home";
-  render(); load(true); loadUsage();
-  if (!booted) { booted = true; setInterval(() => { if (KEY) load(); }, 15000); setInterval(() => { if (KEY) loadUsage(); }, 60000); }
+  render(); load(true); loadUsage(); loadAds();
+  if (!booted) { booted = true; setInterval(() => { if (KEY) load(); }, 15000); setInterval(() => { if (KEY) { loadUsage(); loadAds(); } }, 60000); }
 }
 if (!KEY) showGate(""); else boot();
 
