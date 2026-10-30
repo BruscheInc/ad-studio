@@ -423,6 +423,11 @@ async function resultFor(ids, note) {
   content.unshift({ type: "text", text: `${note}\n${lines.join("\n")}\nUse an id above with edit_image to refine, or share the URL to download the full-resolution file.` });
   return { content };
 }
+async function exportFile(id) {
+  const r = await getImage(id); if (!r) return { isError: true, content: [{ type: "text", text: `No image with id ${id}.` }] };
+  const jpg = r.mime === "image/jpeg" ? r.bytes : await sharp(r.bytes).jpeg({ quality: 92, chromaSubsampling: "4:4:4" }).toBuffer();
+  return { content: [{ type: "text", text: `${id} — ${r.width}×${r.height} JPEG, ${Math.round(jpg.length / 1024)} KB — ${r.title || ""}` }, { type: "image", data: jpg.toString("base64"), mimeType: "image/jpeg" }] };
+}
 async function runCompose({ blocks, width = 1800, height, format = "jpeg", title }) {
   try {
     const ids = [];
@@ -486,6 +491,7 @@ function buildServer() {
     },
   }, async ({ prompt, image_ids, mask_id, size, quality, n, input_fidelity, products, no_products, allow_created_source, title }) => {
     // Clients with an older tool list can reach compose_email through edit_image: prompt = "COMPOSE EMAIL" + JSON spec. No AI cost.
+    if (/^\s*EXPORT FILE\s*$/i.test(prompt || "")) return exportFile(image_ids[0]);   // older clients: hand over the full-size file, no AI cost
     const cm = /^\s*COMPOSE EMAIL\s*([\s\S]*)$/i.exec(prompt || "");
     if (cm) {
       let spec; try { spec = JSON.parse(cm[1]); } catch (e) { return { isError: true, content: [{ type: "text", text: `COMPOSE EMAIL: the spec after the first line must be JSON (${e.message}).` }] }; }
