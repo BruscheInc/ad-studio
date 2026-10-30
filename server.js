@@ -778,6 +778,7 @@ app.get("/img/:file", async (req, res) => {
   const id = String(req.params.file).replace(/\.[a-z0-9]+$/i, "");
   const r = await getImage(id); if (!r) return res.status(404).send("not found");
   res.setHeader("Content-Type", r.mime); res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  res.setHeader("Access-Control-Allow-Origin", "*");   // lets Ads Manager / other tools load the file directly (images are already public links)
   const fname = `${(r.title || r.kind).replace(/[^\w.-]+/g, "-").replace(/-+/g, "-").slice(0, 150)}.${extOf(r.mime)}`;
   res.setHeader("Content-Disposition", `${req.query.dl ? "attachment" : "inline"}; filename="${fname}"`);
   res.send(r.bytes);
