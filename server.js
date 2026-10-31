@@ -589,7 +589,7 @@ function buildServer() {
         const fresh = await freshProductRefs(products);
         if (images.length + fresh.refs.length > 16) throw new Error("Too many images: keep your own sources to a few; each product adds up to 2 photos.");
         const order = fresh.refs.map((x, k) => `image ${images.length + k + 1} = ${x.label} (original product photo)`).join("; ");
-        prompt += `\n\nPRODUCT FAILSAFE — the garments must match the attached ORIGINAL product photos exactly (${order}): same print, colours, trim, piping, zipper and construction. Copy garments ONLY from those product photos, never from any other image. Product specs from the factory tech packs:\n${fresh.specs.join("\n\n")}`;
+        prompt += `\n\nPRODUCT FAILSAFE — the garments must match the attached ORIGINAL product photos exactly (${order}): same print, colours, trim, piping, zipper and construction. Copy garments ONLY from those product photos, never from any other image. Product specs from the factory tech packs:\n${fresh.specs.join("\n\n")}\n\n${playbook.FABRIC}`;
         images.push(...fresh.refs);
         checks = fresh.notes;
       }
