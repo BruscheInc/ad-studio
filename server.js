@@ -749,7 +749,9 @@ Blocks are stacked top to bottom. Every size scales with the width. Colours: hex
 • {type:"bar", text, bg?, color?} — thin promo strip.
 • {type:"logo", variant?:"dark-navy", width?:0.36, bg?} — Larkspur logo row.
 • {type:"text", eyebrow?, script?, headline?, body?, button?|buttons?, bg?, color?, headline_size?:0.072} — centred copy panel; "\\n" breaks lines; script = small hand-written line above the headline.
-• {type:"photo", image_id, height?: ratio of width (≤3) or px, focus_x?, focus_y?, zoom?, inset?: fraction of width, callouts?:[{text, x, y, arrow?: up|down|left|right|down-left|down-right|up-left|up-right, color?}], button?} — full-width (or inset) photo; callouts are thin hand-written notes with arrows (x,y = fractions of the photo; put them on plain background areas).
+• {type:"wave", from, to, height?:0.06} — soft wavy divider between two colours.
+• Playful/holiday options: photo shape:"rounded"(with radius e.g. 0.045)|"arch"|"wave-bottom"|"wave-top"|"wave-both"; photo snow:"snow"|"sparkles"|"both" (drawn over the photo); decor:"snow"|"sparkles"|"both" on text, logo and photo blocks (drawn around, decor_color / decor_accent / decor_density); script_font:"script"(elegant, default)|"hand". Extra colours: ice, frost, cranberry, evergreen, snow.
+• {type:"photo", image_id, height?: ratio of width (≤3) or px, focus_x?, focus_y?, zoom?, inset?: fraction of width, pad_top?, pad_bottom?, radius?, callouts?:[{text, x, y, arrow?: up|down|left|right|down-left|down-right|up-left|up-right, color?}], button?} — full-width (or inset) photo; callouts are thin hand-written notes with arrows (x,y = fractions of the photo; put them on plain background areas).
 • {type:"split", image_id, side:"left"|"right" (photo side), height?: ratio of half-width, eyebrow?, headline, body?, button?, bg?} — photo half + copy half (checkerboard rows).
 • {type:"pair", items:[{image_id, label?, sub?, button?, focus_y?}…2-3], ratio?:1.25, bg?} — product tiles side by side.
 • {type:"links", buttons:[…], button_bg?, bg?} — 2-column quick-link buttons.

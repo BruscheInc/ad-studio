@@ -15,6 +15,7 @@ const FONTS = {
   serif: { file: path.join(FONT_DIR, "Fraunces.ttf"), family: "Fraunces" },
   sans: { file: path.join(FONT_DIR, "DMSans.ttf"), family: "DM Sans" },
   hand: { file: path.join(FONT_DIR, "Caveat.ttf"), family: "Caveat" },
+  script: { file: path.join(FONT_DIR, "DancingScript.ttf"), family: "Dancing Script" },
 };
 const LOGO_DIR = path.join(__dirname, "brand");
 
@@ -22,6 +23,7 @@ const LOGO_DIR = path.join(__dirname, "brand");
 const COLORS = {
   cream: "#FBF7F0", oat: "#F3ECE1", sand: "#E9DFD0", white: "#FFFFFF", navy: "#1F2A44", ink: "#2B2B2B",
   red: "#C8473D", berry: "#B5475A", sage: "#7E9A7A", pine: "#2F5D50", sky: "#DCE8F2", blush: "#F5E1DC", gold: "#E9C46A",
+  ice: "#EAF2F7", frost: "#F4F8FA", cranberry: "#9E2B33", evergreen: "#5E7F6E", snow: "#FFFFFF",
 };
 const col = (c, d) => (c ? (COLORS[c] || c) : d);
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -89,6 +91,43 @@ async function coverPhoto(bytes, W, H, fx = 0.5, fy = 0.5, zoom = 1) {
   return sharp(base).extract({ left, top, width: cw, height: ch }).resize(W, H, { kernel: "lanczos3" }).png().toBuffer();
 }
 
+/* Seeded random so the same layout always draws the same snow. */
+function rng(seed) { let x = (seed >>> 0) || 1; return () => ((x = (x * 1664525 + 1013904223) >>> 0) / 4294967296); }
+/** Playful holiday decoration as an SVG overlay: falling snow dots and/or little sparkle stars. */
+function decorSvg(W, H, kind = "snow", { color = "#FFFFFF", accent = "#E9C46A", density = 1, seed = 7, avoid = null } = {}) {
+  const r = rng(seed + W + H), els = [];
+  const area = (W * H) / 1e6;
+  const inAvoid = (x, y) => avoid && x > avoid.x0 && x < avoid.x1 && y > avoid.y0 && y < avoid.y1;
+  if (kind === "snow" || kind === "both") {
+    const n = Math.round(14 * area * density);
+    for (let i = 0; i < n; i++) { const x = r() * W, y = r() * H; if (inAvoid(x, y)) continue; const rad = (0.0025 + r() * 0.0055) * W; els.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${rad.toFixed(1)}" fill="${color}" opacity="${(0.55 + r() * 0.45).toFixed(2)}"/>`); }
+  }
+  if (kind === "sparkles" || kind === "both") {
+    const n = Math.max(3, Math.round(2.2 * area * density));
+    for (let i = 0; i < n; i++) {
+      const x = r() * W, y = r() * H; if (inAvoid(x, y)) continue; const s = (0.008 + r() * 0.012) * W;
+      const d = `M ${x} ${y - s} C ${x + s * 0.12} ${y - s * 0.12}, ${x + s * 0.12} ${y - s * 0.12}, ${x + s} ${y} C ${x + s * 0.12} ${y + s * 0.12}, ${x + s * 0.12} ${y + s * 0.12}, ${x} ${y + s} C ${x - s * 0.12} ${y + s * 0.12}, ${x - s * 0.12} ${y + s * 0.12}, ${x - s} ${y} C ${x - s * 0.12} ${y - s * 0.12}, ${x - s * 0.12} ${y - s * 0.12}, ${x} ${y - s} Z`;
+      els.push(`<path d="${d}" fill="${accent}" opacity="${(0.7 + r() * 0.3).toFixed(2)}"/>`);
+    }
+  }
+  return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">${els.join("")}</svg>`);
+}
+/** Mask an image to a shape: rounded corners, an arch top, or a soft wave along the bottom/top edge. */
+async function shapeMask(buf, W, H, { shape = "rect", radius = 0 }) {
+  if (shape === "rect" && !radius) return buf;
+  let d;
+  const rr = Math.min(radius, W / 2, H / 2);
+  if (shape === "arch") { const R = W / 2; d = `M0 ${H} L0 ${R} A${R} ${R} 0 0 1 ${W} ${R} L${W} ${H} Z`; }
+  else if (shape === "wave-bottom" || shape === "wave-both") {
+    const a = H * 0.035, y = H - a * 1.6;
+    const top = shape === "wave-both" ? `M0 ${a * 1.6} C ${W * 0.25} ${-a * 0.4}, ${W * 0.55} ${a * 3.2}, ${W} ${a * 0.6}` : `M0 0 L${W} 0`;
+    d = `${top} L${W} ${y} C ${W * 0.72} ${y + a * 2.4}, ${W * 0.38} ${y - a * 1.4}, 0 ${y + a * 0.8} Z`;
+  } else if (shape === "wave-top") { const a = H * 0.035; d = `M0 ${a * 1.6} C ${W * 0.25} ${-a * 0.4}, ${W * 0.55} ${a * 3.2}, ${W} ${a * 0.6} L${W} ${H} L0 ${H} Z`; }
+  else d = `M${rr} 0 H${W - rr} A${rr} ${rr} 0 0 1 ${W} ${rr} V${H - rr} A${rr} ${rr} 0 0 1 ${W - rr} ${H} H${rr} A${rr} ${rr} 0 0 1 0 ${H - rr} V${rr} A${rr} ${rr} 0 0 1 ${rr} 0 Z`;
+  const mask = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><path d="${d}" fill="#fff"/></svg>`);
+  return sharp(buf).ensureAlpha().composite([{ input: mask, blend: "dest-in" }]).png().toBuffer();
+}
+
 async function solid(W, H, bg) {
   return sharp({ create: { width: W, height: H, channels: 4, background: col(bg, COLORS.cream) } }).png().toBuffer();
 }
@@ -99,7 +138,7 @@ async function textStack(b, W, S, defaults = {}) {
   const inner = Math.round(W - 2 * (b.pad_x ?? 0.09 * S));
   const pieces = [];
   if (b.eyebrow) pieces.push({ ...(await text(b.eyebrow.toUpperCase(), { font: "sans", weight: "SemiBold", size: Math.round(0.019 * S), color, width: inner, spacing: Math.round(0.006 * S) })), gap: Math.round(0.022 * S) });
-  if (b.script) pieces.push({ ...(await text(b.script, { font: "hand", weight: "Regular", size: Math.round(0.05 * S), color: col(b.accent, color), width: inner })), gap: Math.round(0.012 * S) });
+  if (b.script) pieces.push({ ...(await text(b.script, { font: b.script_font || "script", weight: b.script_font === "hand" ? "Regular" : "SemiBold", size: Math.round((b.script_size || (b.script_font === "hand" ? 0.05 : 0.058)) * S), color: col(b.accent, color), width: inner })), gap: Math.round(0.006 * S) });
   if (b.headline) pieces.push({ ...(await text(b.headline, { font: "serif", weight: b.headline_weight || "Regular", size: Math.round((b.headline_size || (defaults.headline_size || 0.072)) * S), color, width: inner, lineHeight: 0.95 })), gap: Math.round(0.026 * S) });
   if (b.body) pieces.push({ ...(await text(b.body, { font: "sans", weight: "Regular", size: Math.round((defaults.body_size || 0.026) * S), color, width: Math.min(inner, Math.round(0.78 * W)), lineHeight: 1.25 })), gap: Math.round(0.038 * S) });
   const btns = b.buttons || (b.button ? [b.button] : []);
@@ -153,13 +192,21 @@ async function renderBlock(b, W, S, getBytes) {
       const lw = Math.round((b.width || 0.36) * W), lh = Math.round(lw / 5);
       const logo = await sharp(file, { density: 600 }).resize(lw, lh).png().toBuffer();
       const pad = Math.round((b.pad ?? 0.04) * S), H = lh + pad * 2;
-      return sharp(await solid(W, H, bg)).composite([{ input: logo, left: Math.round((W - lw) / 2), top: pad }]).png().toBuffer();
+      const under = b.decor ? [{ input: decorSvg(W, H, b.decor, { color: col(b.decor_color, "#FFFFFF"), accent: col(b.decor_accent, COLORS.gold), density: b.decor_density || 1, seed: 9, avoid: { x0: (W - lw) / 2 - 20, x1: (W + lw) / 2 + 20, y0: pad - 20, y1: pad + lh + 20 } }), left: 0, top: 0 }] : [];
+      return sharp(await solid(W, H, bg)).composite([...under, { input: logo, left: Math.round((W - lw) / 2), top: pad }]).png().toBuffer();
     }
     case "spacer": return solid(W, Math.round(b.height || 0.04 * S), bg);
+    case "wave": {   // soft wavy transition from one colour (top) to another (bottom)
+      const H = Math.round((b.height || 0.06) * W), top = col(b.from, COLORS.cream), bottom = col(b.to, COLORS.ice);
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="${top}"/><path d="M0 ${H * 0.55} C ${W * 0.22} ${H * 0.05}, ${W * 0.48} ${H * 0.95}, ${W * 0.74} ${H * 0.4} S ${W * 0.95} ${H * 0.2}, ${W} ${H * 0.35} L${W} ${H} L0 ${H} Z" fill="${bottom}"/></svg>`;
+      return sharp(Buffer.from(svg)).png().toBuffer();
+    }
     case "text": {
       const st = await textStack(b, W, S);
       const pad = Math.round((b.pad ?? 0.06) * S), H = st.h + pad * 2;
-      return sharp(await solid(W, H, bg)).composite(placeStack(st, W, pad)).png().toBuffer();
+      const layers = placeStack(st, W, pad);
+      if (b.decor) layers.unshift({ input: decorSvg(W, H, b.decor, { color: col(b.decor_color, "#DCE8F2"), accent: col(b.decor_accent, COLORS.gold), density: b.decor_density || 1, seed: 11, avoid: { x0: W * 0.12, x1: W * 0.88, y0: pad * 0.6, y1: H - pad * 0.6 } }), left: 0, top: 0 });
+      return sharp(await solid(W, H, bg)).composite(layers).png().toBuffer();
     }
     case "photo": {
       const inset = Math.round((b.inset || 0) * W);
@@ -170,9 +217,13 @@ async function renderBlock(b, W, S, getBytes) {
         const bt = await button(b.button.label || b.button, { bg: b.button.bg || "red", color: b.button.color || "white", size: Math.round(0.026 * S), minWidth: Math.round(0.5 * S) });
         layers.push({ input: bt.buf, left: Math.round((PW - bt.w) / 2), top: PH - bt.h - Math.round((b.button_bottom ?? 0.05) * PH) });
       }
-      const img = layers.length ? await sharp(photo).composite(layers).png().toBuffer() : photo;
-      const H = PH + inset * (b.inset_bottom === false ? 1 : 2);
-      return sharp(await solid(W, H, bg)).composite([{ input: img, left: inset, top: inset }]).png().toBuffer();
+      if (b.snow) layers.unshift({ input: decorSvg(PW, PH, b.snow === true ? "snow" : b.snow, { color: col(b.snow_color, "#FFFFFF"), accent: col(b.decor_accent, COLORS.gold), density: b.snow_density || 1, seed: 3 }), left: 0, top: 0 });
+      let img = layers.length ? await sharp(photo).composite(layers).png().toBuffer() : photo;
+      img = await shapeMask(img, PW, PH, { shape: b.shape || "rect", radius: Math.round((b.radius || 0) * W) });
+      const padTop = Math.round((b.pad_top ?? b.inset ?? 0) * W), padBottom = Math.round((b.pad_bottom ?? (b.inset_bottom === false ? 0 : b.inset ?? 0)) * W);
+      const H = PH + padTop + padBottom;
+      const under = b.decor ? [{ input: decorSvg(W, H, b.decor, { color: col(b.decor_color, "#DCE8F2"), accent: col(b.decor_accent, COLORS.gold), density: b.decor_density || 1, seed: 5 }), left: 0, top: 0 }] : [];
+      return sharp(await solid(W, H, bg)).composite([...under, { input: img, left: inset, top: padTop }]).png().toBuffer();
     }
     case "split": {
       const half = Math.round(W / 2);
