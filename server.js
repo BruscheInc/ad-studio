@@ -749,16 +749,17 @@ Blocks are stacked top to bottom. Every size scales with the width. Colours: hex
 • {type:"bar", text, bg?, color?} — thin promo strip.
 • {type:"logo", variant?:"dark-navy", width?:0.36, bg?} — Larkspur logo row.
 • {type:"text", eyebrow?, script?, headline?, body?, button?|buttons?, bg?, color?, headline_size?:0.072} — centred copy panel; "\\n" breaks lines; script = small hand-written line above the headline.
-• {type:"wave", from, to, height?:0.06} — soft wavy divider between two colours.
-• Playful/holiday options: photo shape:"rounded"(with radius e.g. 0.045)|"arch"|"wave-bottom"|"wave-top"|"wave-both"; photo snow:"snow"|"sparkles"|"both" (drawn over the photo); decor:"snow"|"sparkles"|"both" on text, logo and photo blocks (drawn around, decor_color / decor_accent / decor_density); script_font:"script"(elegant, default)|"hand". Extra colours: ice, frost, cranberry, evergreen, snow.
-• {type:"photo", image_id, height?: ratio of width (≤3) or px, focus_x?, focus_y?, zoom?, inset?: fraction of width, pad_top?, pad_bottom?, radius?, callouts?:[{text, x, y, arrow?: up|down|left|right|down-left|down-right|up-left|up-right, color?}], button?} — full-width (or inset) photo; callouts are thin hand-written notes with arrows (x,y = fractions of the photo; put them on plain background areas).
-• {type:"split", image_id, side:"left"|"right" (photo side), height?: ratio of half-width, eyebrow?, headline, body?, button?, bg?} — photo half + copy half (checkerboard rows).
-• {type:"pair", items:[{image_id, label?, sub?, button?, focus_y?}…2-3], ratio?:1.25, bg?} — product tiles side by side.
-• {type:"links", buttons:[…], button_bg?, bg?} — 2-column quick-link buttons.
-• {type:"spacer", height, bg?}.
+• {type:"wave", from, to, height?:0.06, style?:"wave"|"scallop"|"cloud", line?:colour} — divider between two colour bands (scallop = row of bumps, cloud = puffy edge, line = thin wavy accent).
+• Playful/holiday options: photo shape:"rounded"(with radius e.g. 0.045)|"arch"|"circle"|"scallop"|"wave-bottom"|"wave-top"|"wave-both", ring:colour (thin outline); photo snow:"snow"|"sparkles"|"both"; decor:"snow"|"sparkles"|"both" on text, logo, photo, collage blocks; script_font:"script"(default)|"hand". Extra colours: ice, frost, cranberry, evergreen, snow.
+• stickers on ANY block: [{kind:"sparkle"|"star"|"snowflake"|"bow"|"ornament"|"holly"|"heart"|"gift"|"candycane"|"moon"|"dot", x, y (fractions of the block), size?:0.05 (of width), color?, accent?, rotate?}] — small clean doodles near corners, 3–6 per section, never over faces or copy.
+• text extras: tag:"Last Call!" or {label,bg,color} (pill highlight above the headline); headline lines starting with "*" take the accent colour (two-tone); code:"HAPPYHOLIDAYS" or {label,value,color,bg} (dashed coupon chip); fine (small print); card:{bg, inset, pad, radius, shape:"scallop"} (copy on a rounded card); button {pill:true}; pad_top/pad_bottom.
+• {type:"collage", layout:"hero5"|"trio"|"duo", items:[{image_id, focus_x?, focus_y?, zoom?} | {tile:{bg, size, lines:[{text, color, font?, weight?, scale?}], stickers?}}], height?, height2?, gap?, radius?, bg?, snow?} — brand-style photo collage; hero5 = tall photo + 2 stacked, then a type tile + wide photo.
+• {type:"products", columns?:2|3|4, card?:"frame"(white scalloped frame)|"arch"|"circle"|"rect", items:[{image_id, label:"Shop Baby", sub?, focus_y?, zoom?, ring?}], ratio?, color? (link colour), ring?} — product cards with underlined "Shop X" links.
+• {type:"swatches", columns?:4, items:[{image_id, label, focus_x, focus_y, zoom?:3}], ring?} — print swatches cropped into circles with names (zoom into the fabric).
+EMAIL STYLE (learned from Little Sleepies): page 1 draws them in (collage or one warm photo, script line + two-tone serif headline, short body) and the offer gets its OWN colour band (tag pill, big two-tone headline, code chip, pill button). Page 2 closes: "Find everyone's match" product cards with underlined Shop links, print swatches, then a white offer card repeating the code + button. Soft pastel bands joined by waves/scallops, one accent colour for every button, a few doodles — playful but never busy.
 Buttons are a label string or {label, bg?, color?}.`,
     inputSchema: {
-      blocks: z.array(z.object({ type: z.enum(["bar", "logo", "text", "photo", "split", "pair", "links", "spacer"]) }).passthrough()).min(1).max(30),
+      blocks: z.array(z.object({ type: z.enum(["bar", "logo", "text", "photo", "split", "pair", "links", "spacer", "wave", "collage", "products", "swatches"]) }).passthrough()).min(1).max(30),
       width: z.number().int().min(320).max(3000).default(1800),
       height: z.number().int().min(100).max(12000).optional().describe("Exact output height; pads with the last block's colour or trims the bottom."),
       format: z.enum(["jpeg", "png"]).default("jpeg"),
