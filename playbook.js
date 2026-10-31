@@ -17,6 +17,7 @@ const REAL_LOOK = {
   phone: `LOOK — like a real photo a parent took on a recent iPhone in their own home: natural daylight from a window, slightly warm indoor white balance, mild real-world clutter kept tidy (a throw blanket, a mug, a stray toy), true colors, natural lens perspective (26mm phone wide lens, slight edge perspective), slightly imperfect framing (a little off-center, a foot or elbow cropped at the frame edge), sharp focus on faces and garments, HDR-free. Real unretouched skin with pores, real hair with flyaways, real fabric folds and knit texture.`,
   lifestyle: `LOOK — a lifestyle photographer shooting in a real, lived-in home (not a studio): soft natural window light, 35mm, f/2.8 with gentle background blur, honest color, documentary moment — people doing something, not posing for the camera. Real unretouched skin, real hair, real fabric folds and knit texture.`,
   macro: `LOOK — a real macro product photo: the fabric fills the whole frame edge to edge, softly rippled and draped so light rakes across the folds, showing the close-knit texture and the print scale; even soft daylight; no props, no people, no text.`,
+  studio: `LOOK — premium kids' sleepwear campaign shot on a styled studio set: one large soft key light from the side like low winter sun, warm on faces, soft real shadows falling across the floor, rim light on hair; 85mm f/2.2 shallow depth so the backdrop melts; soft muted film colour with gentle grain; real skin texture and natural fabric folds; full-length framing at the kids' eye level.`,
   catalog: `LOOK — a clean e-commerce catalog photo: plain white or very light grey seamless background, soft even light, the whole garment visible, true color, crisp.`,
 };
 const NEVER = `NEVER — no text, letters, logos, stickers or doodles painted into the picture; no flying feathers, confetti or staged action; no everyone-laughing-at-once; no glossy studio glow, airbrushed skin, HDR look or boosted saturation; no perfect symmetrical posing; no stock "pretty brunette mom" face.`;
@@ -39,6 +40,15 @@ const CONCEPTS = [
     look: "lifestyle",
     scene: `One child (toddler or preschooler) in the matching pajamas caught in a small real moment at home: tiptoeing to look at the tree lights, hugging the dog who wears the matching bandana, or sitting in a laundry basket of blankets. Natural expression (concentration, wonder, a small smile), not looking at the camera.`,
     copy: { primary: ["The little moments are the whole point. {emoji}"], headline: ["Made for Moments Like This"] } },
+
+  { key: "storybook-set", intent: "soft", emotion: "wonder / pure joy — a little holiday world",
+    look: "studio",
+    scene: `A styled studio set like a premium sleepwear campaign: seamless paper backdrop in ONE colour (soft powder-blue to lavender dusk sky, or deep holiday red), white snowbanks on the floor, slow snowflakes caught glowing in the light. ONE hero prop at most (vintage wooden sled with red runners, a real decorated tree with a white knit skirt, a giant cellophane-wrapped peppermint, paper chains). Kids in real action: tossing snow up mid-laugh, a baby reaching for flakes open-mouthed, a toddler hanging a low ornament while mom lifts the baby to the top. Nobody poses for the camera.`,
+    copy: { primary: ["Let it snow, let it snow, let them match. {emoji}"], headline: ["Snow Days, Matched", "A Little World of Wonder"] } },
+  { key: "pet-match", intent: "soft", emotion: "delight — 'even the dog matches'",
+    look: "lifestyle",
+    scene: `Christmas at home by a real lit tree (warm bokeh, kraft-paper gifts with baker's twine, honey wood floor): a toddler in the pajamas sits cross-legged hugging a puppy wearing the matching pet bandana; the puppy licks or nuzzles her and she giggles with eyes scrunched. Warm amber tree light, soft real shadows on the floor, 50mm f/1.8 depth.`,
+    copy: { primary: ["Her best friend gets a matching set too. {emoji}"], headline: ["Best Friends, Matching", "The Whole Pack Matches"] } },
 
   /* ---------- MID: make them want to touch it ---------- */
   { key: "print-swatch", intent: "mid", emotion: "want — 'oh, that print' + softness you can almost feel",
