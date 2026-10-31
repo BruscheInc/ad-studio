@@ -20,6 +20,8 @@ const REAL_LOOK = {
   studio: `LOOK — premium kids' sleepwear campaign shot on a styled studio set: one large soft key light from the side like low winter sun, warm on faces, soft real shadows falling across the floor, rim light on hair; 85mm f/2.2 shallow depth so the backdrop melts; soft muted film colour with gentle grain; real skin texture and natural fabric folds; full-length framing at the kids' eye level.`,
   catalog: `LOOK — a clean e-commerce catalog photo: plain white or very light grey seamless background, soft even light, the whole garment visible, true color, crisp.`,
 };
+/* Kids never hold still: every real kids' photo has flaws. Added to every concept so nothing looks "too perfect". */
+const IMPERFECT = `IMPERFECT ON PURPOSE — this is one lucky frame out of many, not a perfect one: motion blur on moving hands, tossed snow, a wagging tail; focus lands on one face and the other child is slightly soft; messy hair, flyaways, rumpled or twisted pajamas, a sleeve pushed up; one kid not smiling, looking away or mid-blink; slightly tilted, a bit-too-tight framing with things cut off at the edges; a blurred object in the near foreground for depth; light a little flat and underexposed with unfilled shadows and darker corners; muted, low-contrast colour with fine grain or phone noise; no sharpening, glow or HDR. The print reads as real fabric — softened by folds, wrinkles and shadow, never crisp and flat.`;
 const NEVER = `NEVER — no text, letters, logos, stickers or doodles painted into the picture; no flying feathers, confetti or staged action; no everyone-laughing-at-once; no glossy studio glow, airbrushed skin, HDR look or boosted saturation; no perfect symmetrical posing; no stock "pretty brunette mom" face.`;
 
 const CONCEPTS = [
@@ -85,7 +87,7 @@ const BY_KEY = Object.fromEntries(CONCEPTS.map((c) => [c.key, c]));
 function conceptBlock(key) {
   const c = BY_KEY[String(key || "").trim().toLowerCase()];
   if (!c) return null;
-  return `\n\nCREATIVE CONCEPT "${c.key}" (${c.intent} funnel) — the picture must make the viewer feel: ${c.emotion}.\nSCENE: ${c.scene}\n${REAL_LOOK[c.look]}\n${NEVER}`;
+  return `\n\nCREATIVE CONCEPT "${c.key}" (${c.intent} funnel) — the picture must make the viewer feel: ${c.emotion}.\nSCENE: ${c.scene}\n${REAL_LOOK[c.look]}\n${IMPERFECT}\n${NEVER}`;
 }
 
 /** Plain-text playbook for the ad_playbook tool. */
@@ -93,7 +95,7 @@ function playbookText(intent) {
   const list = CONCEPTS.filter((c) => !intent || c.intent === intent);
   const head = `Ad Studio creative playbook (from Little Sleepies, Posh Peanut and Kyte Baby top ads). Rules for every ad:
 • One emotion per ad, carried by the picture. No text painted on photos; put words in Meta's primary text/headline (or set them with compose_email when a layout is needed).
-• Real life beats studio: a parent's phone in a real home, daylight, real tree, real couch. Imperfect framing is fine.
+• Imperfect beats perfect: motion blur, soft focus on one kid, messy hair, rumpled PJs, flat light, grain — a real frame, not a flawless render.\n• Real life beats studio: a parent's phone in a real home, daylight, real tree, real couch. Imperfect framing is fine.
 • Cover the funnel: soft (stop the scroll with a feeling) → mid (make them want to touch it) → purchase (clear product + reason to buy now).
 • Copy: one short line + 1 emoji; headline 3–6 words, a light pun is welcome ("A Little Stripe. A Lot of Christmas."). Name the print/collection.
 • Run 3–4 versions of each concept (different crops/moments) so Meta can rotate.
@@ -102,4 +104,4 @@ To use a concept: edit_image with an original product photo, a "PRODUCTS: …" l
   return head + "\n" + body;
 }
 
-module.exports = { CONCEPTS, REAL_LOOK, NEVER, conceptBlock, playbookText };
+module.exports = { CONCEPTS, REAL_LOOK, IMPERFECT, NEVER, conceptBlock, playbookText };
