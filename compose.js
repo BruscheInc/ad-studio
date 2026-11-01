@@ -16,6 +16,11 @@ const FONTS = {
   sans: { file: path.join(FONT_DIR, "DMSans.ttf"), family: "DM Sans" },
   hand: { file: path.join(FONT_DIR, "Caveat.ttf"), family: "Caveat" },
   script: { file: path.join(FONT_DIR, "DancingScript.ttf"), family: "Dancing Script" },
+  retro: { file: path.join(FONT_DIR, "Shrikhand.ttf"), family: "Shrikhand" },
+  round: { file: path.join(FONT_DIR, "Fredoka.ttf"), family: "Fredoka" },
+  brush: { file: path.join(FONT_DIR, "Pacifico.ttf"), family: "Pacifico" },
+  block: { file: path.join(FONT_DIR, "RubikMonoOne.ttf"), family: "Rubik Mono One" },
+  typewriter: { file: path.join(FONT_DIR, "SpecialElite.ttf"), family: "Special Elite" },
 };
 const LOGO_DIR = path.join(__dirname, "brand");
 
@@ -282,6 +287,214 @@ async function callouts(list, W, H, S, color = "navy") {
   return layers;
 }
 
+
+/* ================= free-form canvas: place anything anywhere (brand-email playfulness) ================= */
+const transparent = { r: 0, g: 0, b: 0, alpha: 0 };
+async function rotated(buf, deg) {
+  if (!deg) { const m = await sharp(buf).metadata(); return { buf, w: m.width, h: m.height }; }
+  const out = await sharp(buf).rotate(deg, { background: transparent }).png().toBuffer();
+  const m = await sharp(out).metadata();
+  return { buf: out, w: m.width, h: m.height };
+}
+async function dropShadow(buf, blur, opacity = 0.28, dx = 0, dy = 0) {
+  const m = await sharp(buf).metadata(); const pad = Math.ceil(blur * 2.5) + Math.max(Math.abs(dx), Math.abs(dy));
+  const W = m.width + pad * 2, H = m.height + pad * 2;
+  const alpha = await sharp(buf).ensureAlpha().extractChannel("alpha").toBuffer();
+  const shadow = await sharp({ create: { width: m.width, height: m.height, channels: 3, background: "#000000" } }).joinChannel(alpha).png().toBuffer();
+  const sh = await sharp({ create: { width: W, height: H, channels: 4, background: transparent } }).composite([{ input: shadow, left: pad + dx, top: pad + dy }]).png().toBuffer();
+  const blurred = await sharp(sh).blur(Math.max(0.3, blur)).ensureAlpha().linear([1, 1, 1, opacity], [0, 0, 0, 0]).png().toBuffer();
+  return { buf: await sharp(blurred).composite([{ input: buf, left: pad, top: pad }]).png().toBuffer(), pad };
+}
+function blobPath(w, h, seed = 3, wobble = 0.18) {
+  const r = rng(seed * 97 + 11), n = 9, cx = w / 2, cy = h / 2, pts = [];
+  for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2, k = 1 - wobble + r() * wobble * 2; pts.push([cx + Math.cos(a) * (w / 2) * k * 0.98, cy + Math.sin(a) * (h / 2) * k * 0.98]); }
+  let d = "";
+  for (let i = 0; i < n; i++) { const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n];
+    if (i === 0) d += `M${p1[0].toFixed(1)} ${p1[1].toFixed(1)}`;
+    const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6], c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+    d += ` C${c1[0].toFixed(1)} ${c1[1].toFixed(1)} ${c2[0].toFixed(1)} ${c2[1].toFixed(1)} ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`; }
+  return d + " Z";
+}
+function burstPath(w, h, points = 16, inner = 0.82) {
+  const cx = w / 2, cy = h / 2; let d = "";
+  for (let i = 0; i < points * 2; i++) { const a = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2, k = i % 2 ? inner : 1; d += `${i ? "L" : "M"}${(cx + Math.cos(a) * w / 2 * k).toFixed(1)} ${(cy + Math.sin(a) * h / 2 * k).toFixed(1)} `; }
+  return d + "Z";
+}
+function tornPath(w, h, seed = 5) {
+  const r = rng(seed * 31 + 7), j = Math.min(w, h) * 0.06; let d = `M0 ${r() * j}`;
+  const steps = Math.max(8, Math.round(w / (j * 1.4)));
+  for (let i = 1; i <= steps; i++) d += ` L${(i / steps) * w} ${r() * j}`;
+  const vs = Math.max(4, Math.round(h / (j * 1.4)));
+  for (let i = 1; i <= vs; i++) d += ` L${w - r() * j} ${(i / vs) * h}`;
+  for (let i = steps - 1; i >= 0; i--) d += ` L${(i / steps) * w} ${h - r() * j}`;
+  for (let i = vs - 1; i > 0; i--) d += ` L${r() * j} ${(i / vs) * h}`;
+  return d + " Z";
+}
+function shapeSvg(sh, w, h) {
+  const fill = sh.color ? col(sh.color) : "none", stroke = sh.stroke ? col(sh.stroke) : "none", sw = sh.stroke_width || Math.max(3, Math.round(Math.min(w, h) * 0.02));
+  let el;
+  switch (sh.shape) {
+    case "circle": el = `<ellipse cx="${w / 2}" cy="${h / 2}" rx="${w / 2 - sw}" ry="${h / 2 - sw}"/>`; break;
+    case "pill": el = `<rect x="${sw / 2}" y="${sw / 2}" width="${w - sw}" height="${h - sw}" rx="${(h - sw) / 2}"/>`; break;
+    case "rect": el = `<rect x="${sw / 2}" y="${sw / 2}" width="${w - sw}" height="${h - sw}" rx="${(sh.radius || 0) * w}"/>`; break;
+    case "arch": el = `<path d="M0 ${h} L0 ${w / 2} A${w / 2} ${w / 2} 0 0 1 ${w} ${w / 2} L${w} ${h} Z"/>`; break;
+    case "burst": el = `<path d="${burstPath(w, h, sh.points || 16, sh.inner || 0.82)}"/>`; break;
+    case "torn": el = `<path d="${tornPath(w, h, sh.seed || 5)}"/>`; break;
+    case "scallop": el = `<path d="${scallopPath(w, h)}"/>`; break;
+    case "heart": el = `<path transform="scale(${w / 100} ${h / 100})" d="M50 92 C20 70 4 52 4 33 C4 17 17 6 31 6 C41 6 47 12 50 20 C53 12 59 6 69 6 C83 6 96 17 96 33 C96 52 80 70 50 92 Z"/>`; break;
+    default: el = `<path d="${blobPath(w, h, sh.seed || 3, sh.wobble ?? 0.18)}"/>`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><g fill="${fill}" stroke="${stroke}" stroke-width="${sw}" stroke-dasharray="${sh.dashed ? `${sw * 3} ${sw * 2}` : "none"}" opacity="${sh.opacity ?? 1}">${el}</g></svg>`;
+}
+function patternSvg(W, H, p) {
+  const c = col(p.color || "#FFFFFF"), o = p.opacity ?? 0.5, s = (p.size || 0.03) * W; let defs = "", fill = "";
+  if (p.kind === "dots") { defs = `<pattern id="p" width="${s * 2}" height="${s * 2}" patternUnits="userSpaceOnUse"><circle cx="${s / 2}" cy="${s / 2}" r="${s * 0.18}" fill="${c}"/><circle cx="${s * 1.5}" cy="${s * 1.5}" r="${s * 0.18}" fill="${c}"/></pattern>`; }
+  else if (p.kind === "stripes") { defs = `<pattern id="p" width="${s}" height="${s}" patternUnits="userSpaceOnUse" patternTransform="rotate(${p.angle ?? 35})"><rect width="${s / 2}" height="${s}" fill="${c}"/></pattern>`; }
+  else if (p.kind === "checker") { defs = `<pattern id="p" width="${s * 2}" height="${s * 2}" patternUnits="userSpaceOnUse"><rect width="${s}" height="${s}" fill="${c}"/><rect x="${s}" y="${s}" width="${s}" height="${s}" fill="${c}"/></pattern>`; }
+  else if (p.kind === "gingham") { defs = `<pattern id="p" width="${s * 2}" height="${s * 2}" patternUnits="userSpaceOnUse"><rect width="${s}" height="${s * 2}" fill="${c}" opacity="0.5"/><rect width="${s * 2}" height="${s}" fill="${c}" opacity="0.5"/></pattern>`; }
+  else if (p.kind === "grid") { defs = `<pattern id="p" width="${s}" height="${s}" patternUnits="userSpaceOnUse"><path d="M${s} 0 L0 0 0 ${s}" fill="none" stroke="${c}" stroke-width="${Math.max(1.5, s * 0.04)}"/></pattern>`; }
+  else return "";
+  fill = `<rect width="${W}" height="${H}" fill="url(#p)" opacity="${o}"/>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><defs>${defs}</defs>${fill}</svg>`;
+}
+/* Display text: per-letter colours, per-letter tilt, pop shadow, outline, pill background. */
+async function displayText(it, W) {
+  const size = Math.round((it.size || 0.06) * W), font = it.font || "serif", weight = it.weight || (["retro", "brush", "block", "typewriter"].includes(font) ? "Regular" : "Bold");
+  const colors = (it.colors || [it.color || "navy"]).map((c) => col(c));
+  const lines = String(it.text).split("\n");
+  const lineBufs = [];
+  for (const line of lines) {
+    let piece;
+    if (it.letter_rotate || colors.length > 1) {
+      const chars = [...line]; const parts = []; const r = rng((it.seed || 1) * 13 + line.length);
+      let ci = 0;
+      for (const ch of chars) {
+        if (ch === " ") { parts.push({ space: true, w: Math.round(size * 0.32) }); continue; }
+        const t = await text1(ch, { font, weight, size, color: colors[ci++ % colors.length] });
+        const rot = it.letter_rotate ? (r() * 2 - 1) * it.letter_rotate : 0;
+        const rr = await rotated(t.buf, rot);
+        parts.push({ ...rr, dy: it.letter_bounce ? Math.round((r() * 2 - 1) * size * it.letter_bounce) : 0 });
+      }
+      const track = Math.round(size * (it.spacing ?? -0.02));
+      const Wt = parts.reduce((a, p) => a + p.w + track, 0) - track, Ht = Math.max(...parts.filter((p) => !p.space).map((p) => p.h)) + Math.round(size * (it.letter_bounce || 0) * 2);
+      let x = 0; const layers = [];
+      for (const p of parts) { if (!p.space) layers.push({ input: p.buf, left: x, top: Math.max(0, Math.round((Ht - p.h) / 2 + p.dy)) }); x += p.w + track; }
+      piece = { buf: await sharp({ create: { width: Math.max(1, Wt), height: Ht, channels: 4, background: transparent } }).composite(layers).png().toBuffer(), w: Math.max(1, Wt), h: Ht };
+    } else {
+      piece = await text1(line || " ", { font, weight, size, color: colors[0], width: it.width ? it.width * W : undefined, align: it.align === "left" ? "left" : it.align === "right" ? "right" : "centre", spacing: it.spacing ? it.spacing * size : 0 });
+    }
+    lineBufs.push(piece);
+  }
+  const step = Math.round(size * (it.line_height || 1.05));
+  const TW = Math.max(...lineBufs.map((p) => p.w)), TH = step * (lineBufs.length - 1) + lineBufs[lineBufs.length - 1].h;
+  const al = it.align || "center";
+  let body = await sharp({ create: { width: TW, height: TH, channels: 4, background: transparent } }).composite(lineBufs.map((p, i) => ({ input: p.buf, top: i * step, left: al === "left" ? 0 : al === "right" ? TW - p.w : Math.round((TW - p.w) / 2) }))).png().toBuffer();
+  let bw = TW, bh = TH;
+  const fx = [];
+  if (it.outline) {   // thick outline: stamp the text around itself in the outline colour
+    const o = Math.max(2, Math.round(size * (it.outline_width || 0.06)));
+    const mask = await sharp(body).ensureAlpha().extractChannel("alpha").toBuffer();
+    const solidC = await sharp({ create: { width: TW, height: TH, channels: 3, background: col(it.outline) } }).joinChannel(mask).png().toBuffer();
+    const pad = o, CW = TW + pad * 2, CH = TH + pad * 2; const L = [];
+    for (let a = 0; a < 16; a++) { const ang = (a / 16) * Math.PI * 2; L.push({ input: solidC, left: pad + Math.round(Math.cos(ang) * o), top: pad + Math.round(Math.sin(ang) * o) }); }
+    L.push({ input: body, left: pad, top: pad });
+    body = await sharp({ create: { width: CW, height: CH, channels: 4, background: transparent } }).composite(L).png().toBuffer(); bw = CW; bh = CH;
+  }
+  if (it.pop) {      // offset "pop" shadow in a solid colour (retro sticker look)
+    const d = Math.max(2, Math.round(size * (it.pop_offset || 0.06)));
+    const mask = await sharp(body).ensureAlpha().extractChannel("alpha").toBuffer();
+    const sh = await sharp({ create: { width: bw, height: bh, channels: 3, background: col(it.pop) } }).joinChannel(mask).png().toBuffer();
+    body = await sharp({ create: { width: bw + d, height: bh + d, channels: 4, background: transparent } }).composite([{ input: sh, left: d, top: d }, { input: body, left: 0, top: 0 }]).png().toBuffer(); bw += d; bh += d;
+  }
+  if (it.bg) {       // label behind the text: pill, rect, torn paper, burst, blob
+    const px = Math.round(size * (it.pad_x ?? 0.55)), py = Math.round(size * (it.pad_y ?? 0.3));
+    const sh = typeof it.bg === "string" ? { color: it.bg, shape: it.bg_shape || "pill" } : it.bg;
+    const w = bw + px * 2, h = bh + py * 2;
+    const back = Buffer.from(shapeSvg({ ...sh, shape: sh.shape || "pill" }, w, h));
+    body = await sharp(back).composite([{ input: body, left: px, top: py }]).png().toBuffer(); bw = w; bh = h;
+  }
+  return { buf: body, w: bw, h: bh };
+}
+async function canvasItem(it, W, getBytes) {
+  const X = (v) => Math.round(v * W);
+  switch (it.kind) {
+    case "photo": {
+      const w = X(it.w || 0.4), h = X(it.h || (it.w || 0.4) * 1.25);
+      let img = await coverPhoto(await getBytes(it.image_id), w, h, it.focus_x ?? 0.5, it.focus_y ?? 0.5, it.zoom || 1);
+      img = await shapeMask(img, w, h, { shape: it.shape || "rect", radius: X(it.radius || 0) });
+      if (it.ring) img = await ringed(img, w, h, it.shape || "rect", X(it.radius || 0), col(it.ring), X(it.ring_width || 0.006));
+      let out = img, ow = w, oh = h;
+      if (it.frame === "polaroid" || it.frame === "border") {
+        const b = X(it.border || 0.018), bottom = it.frame === "polaroid" ? X(it.caption ? 0.075 : 0.055) : b;
+        ow = w + b * 2; oh = h + b + bottom;
+        const L = [{ input: img, left: b, top: b }];
+        if (it.caption) { const t = await text1(it.caption, { font: it.caption_font || "hand", size: X(it.caption_size || 0.03), color: col(it.caption_color || "ink") }); L.push({ input: t.buf, left: Math.round((ow - t.w) / 2), top: h + b + Math.round((bottom - t.h) / 2) }); }
+        out = await sharp({ create: { width: ow, height: oh, channels: 4, background: col(it.frame_color || "#FFFFFF") } }).composite(L).png().toBuffer();
+      }
+      if (it.tape) {
+        const tw = X(it.tape_w || 0.12), th = X(0.032), tc = col(it.tape === true ? "#F3E3B3" : it.tape);
+        const tape = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${tw}" height="${th}"><path d="${tornPath(tw, th, 9)}" fill="${tc}" opacity="0.85"/></svg>`);
+        const tr = await rotated(await sharp(tape).png().toBuffer(), it.tape_rotate ?? -6);
+        const pad = Math.round(tr.h / 2);
+        out = await sharp({ create: { width: ow, height: oh + pad, channels: 4, background: transparent } }).composite([{ input: out, left: 0, top: pad }, { input: tr.buf, left: Math.round((ow - tr.w) / 2), top: 0 }]).png().toBuffer();
+        oh += pad;
+      }
+      return { buf: out, shadow: it.shadow !== false };
+    }
+    case "text": case "headline": return { buf: (await displayText(it, W)).buf, shadow: !!it.shadow };
+    case "shape": { const w = X(it.w || 0.3), h = X(it.h || it.w || 0.3); return { buf: await sharp(Buffer.from(shapeSvg(it, w, h))).png().toBuffer(), shadow: !!it.shadow }; }
+    case "sticker": { const s = X(it.size || 0.06); const k = STICKERS[it.sticker] ? it.sticker : "sparkle";
+      return { buf: await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 100 100">${STICKERS[k](col(it.color, COLORS.gold), col(it.accent, COLORS.cranberry))}</svg>`)).png().toBuffer() }; }
+    case "button": { const b = await button(it.label, { bg: it.bg || "red", color: it.color || "white", size: X(it.size || 0.026), radius: it.pill === false ? undefined : 999, minWidth: X(it.min_w || 0.4) }); return { buf: b.buf, shadow: !!it.shadow }; }
+    case "code": { const c = await codeChip({ label: it.label, value: it.value, color: it.color, bg: it.bg, size: it.size || 0.034 }, W, col(it.color, COLORS.navy)); return { buf: c.buf, shadow: !!it.shadow }; }
+    case "ransom": {   // cut-out letters: each letter on its own paper scrap, mixed fonts and colours
+      const size = X(it.size || 0.07), r = rng((it.seed || 4) * 17), fonts = it.fonts || ["serif", "retro", "round", "block", "typewriter"];
+      const papers = (it.papers || ["#FFFFFF", "#F7DCDC", "#FFF4D6", "#CFE8DC"]).map((c) => col(c)), inks = (it.inks || ["#D9404B", "#1F5A45", "#1F2A44"]).map((c) => col(c));
+      const lines = String(it.text).split("\n"), lineOut = [];
+      for (const line of lines) {
+        const parts = [];
+        for (const ch of [...line]) {
+          if (ch === " ") { parts.push({ space: true, w: Math.round(size * 0.35), h: 1 }); continue; }
+          const f = fonts[Math.floor(r() * fonts.length)];
+          const t = await text1(ch, { font: f, weight: ["retro", "brush", "block", "typewriter"].includes(f) ? "Regular" : "Bold", size: Math.round(size * (0.85 + r() * 0.3)), color: inks[Math.floor(r() * inks.length)] });
+          const px = Math.round(size * 0.14), py = Math.round(size * 0.08), w = t.w + px * 2, h = t.h + py * 2;
+          const paper = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><path d="${tornPath(w, h, Math.floor(r() * 99))}" fill="${papers[Math.floor(r() * papers.length)]}"/></svg>`);
+          const tile = await sharp(paper).composite([{ input: t.buf, left: px, top: py }]).png().toBuffer();
+          parts.push(await rotated(tile, (r() * 2 - 1) * (it.tilt ?? 7)));
+        }
+        const gap = Math.round(size * 0.04), Wl = parts.reduce((a, p) => a + p.w + gap, 0) - gap, Hl = Math.max(...parts.map((p) => p.h));
+        let x = 0; const L = [];
+        for (const p of parts) { if (!p.space) L.push({ input: p.buf, left: x, top: Math.round((Hl - p.h) / 2) }); x += p.w + gap; }
+        lineOut.push({ buf: await sharp({ create: { width: Math.max(1, Wl), height: Hl, channels: 4, background: transparent } }).composite(L).png().toBuffer(), w: Math.max(1, Wl), h: Hl });
+      }
+      const step = Math.round(size * 1.25), TW = Math.max(...lineOut.map((l) => l.w)), TH = step * (lineOut.length - 1) + lineOut[lineOut.length - 1].h;
+      return { buf: await sharp({ create: { width: TW, height: TH, channels: 4, background: transparent } }).composite(lineOut.map((l, i) => ({ input: l.buf, left: Math.round((TW - l.w) / 2), top: i * step }))).png().toBuffer(), shadow: it.shadow !== false };
+    }
+    default: throw new Error(`Unknown canvas item kind "${it.kind}".`);
+  }
+}
+async function renderCanvas(b, W, getBytes) {
+  const H = Math.round(b.height ? (b.height <= 4 ? b.height * W : b.height) : W);
+  let bgSvg;
+  if (b.gradient) { const [c1, c2] = b.gradient; bgSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><defs><linearGradient id="g" x1="0" y1="0" x2="${b.gradient_dir === "h" ? 1 : 0}" y2="${b.gradient_dir === "h" ? 0 : 1}"><stop offset="0" stop-color="${col(c1)}"/><stop offset="1" stop-color="${col(c2)}"/></linearGradient></defs><rect width="${W}" height="${H}" fill="url(#g)"/></svg>`; }
+  const layers = [];
+  if (bgSvg) layers.push({ input: Buffer.from(bgSvg), left: 0, top: 0 });
+  if (b.pattern) { const ps = patternSvg(W, H, b.pattern); if (ps) layers.push({ input: Buffer.from(ps), left: 0, top: 0 }); }
+  if (b.decor) layers.push({ input: decorSvg(W, H, b.decor, { color: col(b.decor_color, "#FFFFFF"), accent: col(b.decor_accent, COLORS.gold), density: b.decor_density || 1, seed: 29 }), left: 0, top: 0 });
+  for (const it of b.items || []) {
+    let { buf, shadow } = await canvasItem(it, W, getBytes);
+    const rr = await rotated(buf, it.rotate || 0); buf = rr.buf; let w = rr.w, h = rr.h, off = 0;
+    if (shadow) { const ds = await dropShadow(buf, Math.round(W * 0.01), it.shadow_opacity ?? 0.22, Math.round(W * 0.004), Math.round(W * 0.008)); buf = ds.buf; off = ds.pad; w += off * 2; h += off * 2; }
+    const ax = it.anchor === "left" ? 0 : it.anchor === "right" ? 1 : 0.5;
+    let left = Math.round(it.x * W - (w - off * 2) * ax) - off, top = Math.round((it.y <= 4 ? it.y * W : it.y) - (h - off * 2) / 2) - off;
+    // clip to the canvas so sharp accepts the overlay
+    const cl = Math.max(0, -left), ct = Math.max(0, -top), cr = Math.max(0, left + w - W), cb = Math.max(0, top + h - H);
+    if (cl || ct || cr || cb) { if (w - cl - cr <= 0 || h - ct - cb <= 0) continue; buf = await sharp(buf).extract({ left: cl, top: ct, width: w - cl - cr, height: h - ct - cb }).png().toBuffer(); left += cl; top += ct; }
+    layers.push({ input: buf, left, top });
+  }
+  return sharp(await solid(W, H, b.bg || "cream")).composite(layers).png().toBuffer();
+}
+
 /**
  * Render one block → PNG buffer W wide.
  * getBytes(id) → Promise<Buffer> loads a stored image.
@@ -386,6 +599,7 @@ async function renderBlock(b, W, S, getBytes) {
       const layers = btns.map((bt, i) => ({ input: bt.buf, left: pad + (i % 2) * (cw + gap), top: pad + Math.floor(i / 2) * (bh + gap) }));
       return sharp(await solid(W, H, bg)).composite(layers).png().toBuffer();
     }
+    case "canvas": return renderCanvas(b, W, getBytes);
     case "collage": {   // photo collage on a colour panel (like a brand hero): layouts hero5 | trio | duo
       const pad = Math.round((b.pad ?? 0.045) * W), gap = Math.round((b.gap ?? 0.018) * W), rad = Math.round((b.radius ?? 0.012) * W);
       const padTop = Math.round((b.pad_top ?? b.pad ?? 0.045) * W), padBottom = Math.round((b.pad_bottom ?? b.pad ?? 0.045) * W);
