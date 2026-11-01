@@ -159,6 +159,10 @@ const STICKERS = {
   candycane: (c) => `<path d="M62 92 V34 C62 14 34 14 34 32" stroke="${c}" stroke-width="12" fill="none" stroke-linecap="round"/><path d="M62 92 V34 C62 14 34 14 34 32" stroke="#FFFFFF" stroke-width="12" fill="none" stroke-linecap="round" stroke-dasharray="7 9"/>`,
   moon: (c) => `<path d="M64 8 C36 12 20 36 24 60 C28 84 54 98 78 88 C58 86 42 70 42 50 C42 30 52 16 64 8 Z" fill="${c}"/>`,
   dot: (c) => `<circle cx="50" cy="50" r="40" fill="${c}"/>`,
+  check: (c) => `<path d="M10 55 C22 64 30 74 38 86 C52 58 68 34 92 12" stroke="${c}" stroke-width="11" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
+  box: (c) => `<rect x="10" y="10" width="80" height="80" rx="10" stroke="${c}" stroke-width="7" fill="none"/>`,
+  snowman: (c, a) => `<circle cx="50" cy="68" r="24" fill="${c}"/><circle cx="50" cy="32" r="17" fill="${c}"/><path d="M50 33 L68 37 L50 39 Z" fill="${a}"/><circle cx="44" cy="28" r="2.6" fill="#1E2A4A"/><circle cx="56" cy="28" r="2.6" fill="#1E2A4A"/>`,
+  mitten: (c, a) => `<path d="M30 90 L30 45 C30 20 70 18 70 42 L70 90 Z" fill="${c}"/><path d="M30 55 C14 52 12 32 26 30" stroke="${c}" stroke-width="14" fill="none" stroke-linecap="round"/><rect x="26" y="78" width="48" height="14" rx="4" fill="${a}"/>`,
 };
 async function addStickers(buf, list, W) {
   if (!list || !list.length) return buf;
