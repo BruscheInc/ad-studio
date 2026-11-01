@@ -470,6 +470,12 @@ async function canvasItem(it, W, getBytes) {
       const step = Math.round(size * 1.25), TW = Math.max(...lineOut.map((l) => l.w)), TH = step * (lineOut.length - 1) + lineOut[lineOut.length - 1].h;
       return { buf: await sharp({ create: { width: TW, height: TH, channels: 4, background: transparent } }).composite(lineOut.map((l, i) => ({ input: l.buf, left: Math.round((TW - l.w) / 2), top: i * step }))).png().toBuffer(), shadow: it.shadow !== false };
     }
+    case "logo": {
+      const variant = it.variant || "dark-navy", file = path.join(LOGO_DIR, `larkspur-primary-${variant}.svg`);
+      if (!fs.existsSync(file)) throw new Error(`Unknown logo "${variant}".`);
+      const lw = X(it.w || 0.26), lh = Math.round(lw / 5);
+      return { buf: await sharp(file, { density: 600 }).resize(lw, lh).png().toBuffer() };
+    }
     default: throw new Error(`Unknown canvas item kind "${it.kind}".`);
   }
 }
