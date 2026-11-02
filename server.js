@@ -316,9 +316,10 @@ async function findStoreProduct(name) {
 }
 /** Pull the product's ORIGINAL photos fresh from the store (never our own "larkspur-baby-…" uploads) + its spec text. */
 async function freshProductRefs(products) {
-  const refs = [], specs = [], notes = [];
+  const refs = [], specs = [], notes = []; let outlet = false;
   for (const pr of products) {
     const url = await findStoreProduct(pr.name);
+    if (/larkspurbabyoutlet\.com/i.test(url)) outlet = true;
     const r = await fetch(`${url}.json`, { headers: { Accept: "application/json" } });
     if (!r.ok) throw new Error(`Store returned HTTP ${r.status} for ${url}`);
     const p = (await r.json()).product;
@@ -345,7 +346,7 @@ async function freshProductRefs(products) {
     specs.push(sp.text);
     notes.push(`${p.title}: ${got} original photo(s) ${from}; ${sp.style ? `tech pack ${sp.style} size ${sp.size}` : "no tech pack on file"}`);
   }
-  return { refs, specs, notes };
+  return { refs, specs, notes, outlet };
 }
 /** Resize an image to a placement size and save the copy (same folder as the source). */
 async function resizeAndSave(r, opt) {
@@ -612,6 +613,8 @@ function buildServer() {
         prompt += `\n\nPRODUCT FAILSAFE — the garments must match the attached ORIGINAL product photos exactly (${order}): same print, colours, trim, piping, zipper and construction. Copy garments ONLY from those product photos, never from any other image. Product specs from the factory tech packs:\n${fresh.specs.join("\n\n")}\n\n${playbook.FABRIC}`;
         images.push(...fresh.refs);
         checks = fresh.notes;
+        // v1.16 — every Outlet image is 1:1 (Jose, Nov 2026)
+        if (fresh.outlet || /outlet/i.test(title || "")) { const m = /^(\d+)x(\d+)$/.exec(size || ""); if (!m || m[1] !== m[2]) { size = "2048x2048"; checks.push("Outlet image → forced to 1:1 (2048×2048)"); } }
       }
       await guardBudget(n);
       const mask = mask_id ? await getImage(mask_id) : null;
