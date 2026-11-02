@@ -335,12 +335,12 @@ async function freshProductRefs(products) {
     // or a real photo uploaded/imported into Ad Studio and linked to this product.
     if (!got && pool) {
       let rows = (await db(`SELECT mime, bytes FROM product_originals WHERE handle=$1 ORDER BY seen_at DESC LIMIT 2`, [p.handle])).rows;
-      if (!rows.length) rows = (await db(`SELECT mime, bytes, title, meta FROM ad_images WHERE kind='upload' AND product_url LIKE $1 ORDER BY created_at ASC LIMIT 6`, [`%/products/${p.handle}`])).rows
+      if (!rows.length) rows = (await db(`SELECT mime, bytes, title, meta FROM ad_images WHERE kind='upload' AND (product_url LIKE $1 OR lower(trim(title))=lower($2)) ORDER BY created_at ASC LIMIT 6`, [`%/products/${p.handle}`, p.title])).rows
         .filter((r) => !isCreatedImage({ ...r, kind: "upload" })).slice(0, 2);
       for (const r of rows) { refs.push({ id: `product-${p.handle}-${refs.length + 1}`, mime: r.mime, bytes: r.bytes, label: p.title }); got++; }
       from = "from saved originals (store listing only has AI images)";
     }
-    if (!got) throw new Error(`"${p.title}" has no original product photo on the store (only AI images). Import the original with import_image (it gets linked to the product) and try again.`);
+    if (!got) throw new Error(`"${p.title}" has no original product photo on the store (only AI images). Import the original with import_image, titled exactly "${p.title}", and try again.`);
     const sp = guard.specText(p.title, pr.size);
     specs.push(sp.text);
     notes.push(`${p.title}: ${got} original photo(s) ${from}; ${sp.style ? `tech pack ${sp.style} size ${sp.size}` : "no tech pack on file"}`);
