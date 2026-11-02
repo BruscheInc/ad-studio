@@ -47,7 +47,7 @@ function construction(style, spec, i) {
       return [
         `Kids' two-piece: short-sleeve crew-neck tee + shorts. Snug-fitting on purpose (close to the body, a little ease, never baggy, never stretched tight).`,
         `TOP LENGTH: body length ${c("Body length") || 42.5} cm from the high point of the shoulder to the hem vs a front rise of only ${c("Front rise") || 19.5} cm — so the tee hem ALWAYS falls past the shorts waistband and hides it completely, ending at the upper hip with just the lower part of the shorts showing. Never cropped, never a belly gap (even when arms are raised the hem stays at the waistband).`,
-        `Sleeves are short, ending at mid upper-arm (${c("Sleeve length") || 12.5} cm), plain stitched hem, no cuff. Shorts: short inseam (${c("Inseam") || 5} cm), plain stitched leg hems, covered elastic waistband.`,
+        `Sleeves are short, ending at mid upper-arm (${c("Sleeve length") || 12.5} cm), plain stitched hem, no cuff. SHORTS LENGTH: the leg hems end at MID-THIGH — about halfway between the hip and the knee — with a real inseam, like a classic kids' sleep short. Never hot-pant or bike-brief short, never high on the thigh. Plain stitched leg hems, covered elastic waistband, a little ease around the thigh.`,
         `Crew neck with a smooth narrow neckband. No ribbing anywhere — smooth tightly knit bamboo.`,
       ];
     case "Long Sleeve Pajamas":
