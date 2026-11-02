@@ -80,6 +80,8 @@ async function migrate() {
     cta TEXT, url TEXT, campaign TEXT, adset TEXT, status TEXT, concept TEXT, notes TEXT,
     created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now())`);
   for (const c of ["meta_ad_id", "meta_creative_id", "meta_adset_id", "meta_image_hash", "pushed_at"]) await db(`ALTER TABLE ad_copies ADD COLUMN IF NOT EXISTS ${c} TEXT`);
+  // v1.16 — original store photos, kept so the failsafe still works after a listing's photos are swapped for AI images
+  await db(`CREATE TABLE IF NOT EXISTS product_originals (handle TEXT NOT NULL, src TEXT NOT NULL, mime TEXT, bytes BYTEA NOT NULL, seen_at TIMESTAMPTZ DEFAULT now(), PRIMARY KEY (handle, src))`);
   console.log("🗄️  Ad Studio schema ready");
 }
 const newId = () => crypto.randomBytes(6).toString("base64url");
@@ -321,15 +323,27 @@ async function freshProductRefs(products) {
     if (!r.ok) throw new Error(`Store returned HTTP ${r.status} for ${url}`);
     const p = (await r.json()).product;
     const originals = (p.images || []).map((i) => i.src).filter((src) => !guard.isAiName(src.split("?")[0].split("/").pop()));
-    if (!originals.length) throw new Error(`"${p.title}" has no original product photo on the store (only AI images). Upload one before making images of it.`);
+    let got = 0, from = "pulled fresh";
     for (const src of originals.slice(0, 2)) {
       const ir = await fetch(src); if (!ir.ok) throw new Error(`HTTP ${ir.status} downloading ${src}`);
       const mime = (ir.headers.get("content-type") || "image/jpeg").split(";")[0].trim();
-      refs.push({ id: `product-${p.handle}-${refs.length + 1}`, mime, bytes: Buffer.from(await ir.arrayBuffer()), label: p.title });
+      const bytes = Buffer.from(await ir.arrayBuffer());
+      refs.push({ id: `product-${p.handle}-${refs.length + 1}`, mime, bytes, label: p.title }); got++;
+      if (pool) await db(`INSERT INTO product_originals (handle, src, mime, bytes) VALUES ($1,$2,$3,$4) ON CONFLICT (handle, src) DO UPDATE SET mime=$3, bytes=$4, seen_at=now()`, [p.handle, src.split("?")[0], mime, bytes]).catch(() => {});
     }
+    // v1.16: the store listing may now show only our AI images — fall back to the original photos seen before,
+    // or a real photo uploaded/imported into Ad Studio and linked to this product.
+    if (!got && pool) {
+      let rows = (await db(`SELECT mime, bytes FROM product_originals WHERE handle=$1 ORDER BY seen_at DESC LIMIT 2`, [p.handle])).rows;
+      if (!rows.length) rows = (await db(`SELECT mime, bytes, title, meta FROM ad_images WHERE kind='upload' AND product_url LIKE $1 ORDER BY created_at ASC LIMIT 6`, [`%/products/${p.handle}`])).rows
+        .filter((r) => !isCreatedImage({ ...r, kind: "upload" })).slice(0, 2);
+      for (const r of rows) { refs.push({ id: `product-${p.handle}-${refs.length + 1}`, mime: r.mime, bytes: r.bytes, label: p.title }); got++; }
+      from = "from saved originals (store listing only has AI images)";
+    }
+    if (!got) throw new Error(`"${p.title}" has no original product photo on the store (only AI images). Import the original with import_image (it gets linked to the product) and try again.`);
     const sp = guard.specText(p.title, pr.size);
     specs.push(sp.text);
-    notes.push(`${p.title}: ${Math.min(2, originals.length)} original photo(s) pulled fresh; ${sp.style ? `tech pack ${sp.style} size ${sp.size}` : "no tech pack on file"}`);
+    notes.push(`${p.title}: ${got} original photo(s) ${from}; ${sp.style ? `tech pack ${sp.style} size ${sp.size}` : "no tech pack on file"}`);
   }
   return { refs, specs, notes };
 }

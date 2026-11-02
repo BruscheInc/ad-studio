@@ -8,7 +8,7 @@
  */
 const { SPECS } = require("./tech-packs.js");
 
-const ALIASES = [[/\bzip(pered)? footie\b/i, "Zipper Footie"], [/\bsleep sack walker\b/i, "Sleep Bag Walker"], [/\bsleep sack\b/i, "Sleep Bag"]];
+const ALIASES = [[/\bshort (pj|pajama) set\b/i, "Short Sleeve Pajamas"], [/\b(long )?(pj|pajama) set\b/i, "Long Sleeve Pajamas"], [/\bzip(pered)? footie\b/i, "Zipper Footie"], [/\bsleep sack walker\b/i, "Sleep Bag Walker"], [/\bsleep sack\b/i, "Sleep Bag"]];
 const NAMES = SPECS.map((s) => s.name).sort((a, b) => b.length - a.length);
 function styleOf(title) {
   const t = String(title || "");
@@ -43,8 +43,14 @@ function construction(style, spec, i) {
         `Fold-over mittens on the sleeves (one subtle tonal seam around the forearm above the wrist); a curved crotch gusset seam; a fold-over foot cuff on each leg (one subtle seam around the lower leg a few cm above the ankle). All stitching subtle and tonal. Feet natural full size, exactly two.`,
         `No ribbing. Close, comfortable fit, never too small.`,
       ];
-    case "Long Sleeve Pajamas":
     case "Short Sleeve Pajamas":
+      return [
+        `Kids' two-piece: short-sleeve crew-neck tee + shorts. Snug-fitting on purpose (close to the body, a little ease, never baggy, never stretched tight).`,
+        `TOP LENGTH: body length ${c("Body length") || 42.5} cm from the high point of the shoulder to the hem vs a front rise of only ${c("Front rise") || 19.5} cm — so the tee hem ALWAYS falls past the shorts waistband and hides it completely, ending at the upper hip with just the lower part of the shorts showing. Never cropped, never a belly gap (even when arms are raised the hem stays at the waistband).`,
+        `Sleeves are short, ending at mid upper-arm (${c("Sleeve length") || 12.5} cm), plain stitched hem, no cuff. Shorts: short inseam (${c("Inseam") || 5} cm), plain stitched leg hems, covered elastic waistband.`,
+        `Crew neck with a smooth narrow neckband. No ribbing anywhere — smooth tightly knit bamboo.`,
+      ];
+    case "Long Sleeve Pajamas":
       return [
         `Kids' two-piece pajama set (not joggers). Made snug-fitting on purpose: close to the body with a little ease — never baggy — but full length: sleeves to the wrists, top covering the waistband, pants to the ankles.`,
         `Crew neck with a smooth narrow neckband. Wrist and ankle cuffs are NARROW smooth bands (${c("Sleeve cuff height") || 1.5} cm — about a finger wide). No ribbing.`,
