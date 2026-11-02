@@ -562,7 +562,7 @@ function buildServer() {
       products: z.array(z.object({ name: z.string().describe("Exact store product title (e.g. 'Zipper Romper in Twinkle Night') or its product link."), size: z.string().optional().describe("Tech-pack size to show, e.g. '12-18M', 'M'. Default: middle size.") })).optional()
         .describe("REQUIRED whenever a Larkspur product appears. Ad Studio pulls each product's original photos fresh from the store, attaches them after your images, and adds its tech pack + construction rules to the prompt."),
       no_products: z.boolean().default(false).describe("Set true only when no Larkspur product appears in the image."),
-      allow_created_source: z.boolean().default(false).describe("Allow an image Ad Studio already made as a source. Only for zoomed catalog close-ups of an approved image the user asked for — garments still come from the fresh product photos."),
+      allow_created_source: z.boolean().default(false).describe("Allow an image Ad Studio already made as a source. Only for zoomed catalog close-ups of an approved image the user asked for — garments still come from the fresh product photos. Never edit an edit: fixes and new versions are always a NEW image from the original photo."),
       title: z.string().max(120).optional(),
     },
   }, async ({ prompt, image_ids, mask_id, size, quality, n, input_fidelity, products, no_products, allow_created_source, title }) => {
@@ -596,6 +596,12 @@ function buildServer() {
       for (const id of image_ids) {
         const r = await getImage(id); if (!r) throw new Error(`No image with id ${id}. Use list_images.`);
         if (isCreatedImage(r) && !allow_created_source) throw new Error(`Product failsafe: ${id} is an image Ad Studio already made (or our AI image re-imported). New images must start from original photos — use the original model/scene photo and let the products be pulled fresh. (allow_created_source=true or a line \"ALLOW CREATED SOURCE\" is only for catalog close-ups of an approved image the user asked for.)`);
+        // v1.16 — no edit chains: re-editing an edit degrades skin, fabric and light ("looks super fake"). A created source is
+        // allowed only if it was itself made straight from an original photo; fixes mean a NEW image from the original.
+        if (isCreatedImage(r) && image_ids.indexOf(id) === 0 && Array.isArray(r.parents) && r.parents.length) {
+          const par = await getImage(r.parents[0]);
+          if (par && isCreatedImage(par)) throw new Error(`No edit chains: ${id} was itself made from another Ad Studio image (${r.parents[0]}). Editing it again makes it look fake. Make a NEW image from the original photo instead (with the fix written into the prompt).`);
+        }
         images.push(r);
       }
       let checks = [];
