@@ -613,6 +613,7 @@ function buildServer() {
         prompt += `\n\nPRODUCT FAILSAFE — the garments must match the attached ORIGINAL product photos exactly (${order}): same print, colours, trim, piping, zipper and construction. Copy garments ONLY from those product photos, never from any other image. Product specs from the factory tech packs:\n${fresh.specs.join("\n\n")}\n\n${playbook.FABRIC}`;
         images.push(...fresh.refs);
         checks = fresh.notes;
+        if (allow_created_source) prompt += `\n\nSAME CHILD, NEW MOMENT: if the pose or framing changes from the source, the face must change with it — a different, natural expression that fits the new moment (eyes open if they were squeezed shut, a softer smile, a curious look, a different laugh). Never paste the source's exact expression onto a new pose; keep only the child's identity (face shape, hair, skin) and the garments.`;
         // v1.16 — every Outlet image is 1:1 (Jose, Nov 2026)
         if (fresh.outlet || /outlet/i.test(title || "")) { const m = /^(\d+)x(\d+)$/.exec(size || ""); if (!m || m[1] !== m[2]) { size = "2048x2048"; checks.push("Outlet image → forced to 1:1 (2048×2048)"); } }
       }
