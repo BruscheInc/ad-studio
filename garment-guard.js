@@ -53,7 +53,8 @@ function construction(style, spec, i) {
     case "Long Sleeve Pajamas":
       return [
         `Kids' two-piece pajama set (not joggers). Made snug-fitting on purpose: close to the body with a little ease — never baggy — but full length: sleeves to the wrists, top covering the waistband, pants to the ankles.`,
-        `Crew neck with a smooth narrow neckband. Wrist and ankle cuffs are NARROW smooth bands (${c("Sleeve cuff height") || 1.5} cm — about a finger wide). No ribbing.`,
+        `Crew neck with a smooth narrow neckband. No ribbing.`,
+        `CUFFS (tech pack, check every time): wrist cuff ${c("Sleeve cuff height") || 1.5} cm and ankle cuff ${c("Leg cuff height") || 1.5} cm tall — a THIN contrast strip at the very end of each sleeve and pant leg, no wider than the child's fingertip, about the same width as the neckband. Never a wide band, never a sock-like or legging-style cuff. If a zipper romper or footie is in the same photo, its ankle cuffs are much taller — the PJ set cuffs must stay about 4× thinner than those.`,
       ];
     case "Women's Long Sleeve Pajamas":
     case "Women's Short Sleeve Pajamas":
