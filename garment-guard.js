@@ -61,7 +61,7 @@ function construction(style, spec, i) {
       return [
         `Button-front top with notched collar, chest pocket and thin piping on collar, placket, pocket edge${style.includes("Long") ? ", sleeves and pant hems" : ", sleeve edges and shorts hems"}.`,
         style.includes("Long") ? `Sleeves full length to the wrist bone with ONE piping line set a short distance above the sleeve edge and a short band of print below it — never two lines.` : `Short sleeves ending at mid-upper-arm.`,
-        `EMBROIDERY: a small "Larkspur" script embroidered near the bottom hem on the front, on the wearer's LEFT side, in the thread colour shown on the product photo.`,
+        `EMBROIDERY: one small "Larkspur" script (spelled L-a-r-k-s-p-u-r) embroidered at the very BOTTOM of the shirt front — sitting just 2–3 cm above the bottom hem, near the wearer's LEFT hip, below belly-button level. It is NEVER under the chest pocket, never mid-torso, never on the sleeve or the pants. Thread colour as on the product photo. Pose her so that bottom corner of the shirt is visible (not hidden behind a child or her arm).`,
         `Top hem falls at the hip covering the waistband; relaxed, true-to-size fit — not baggy, not tight; buttons lie flat.`,
       ];
     case "Sleep Bag":
