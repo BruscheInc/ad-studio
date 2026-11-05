@@ -621,7 +621,7 @@ function buildServer() {
       products: z.array(z.object({ name: z.string().describe("Exact store product title (e.g. 'Zipper Romper in Twinkle Night') or its product link."), size: z.string().optional().describe("Tech-pack size to show, e.g. '12-18M', 'M'. Default: middle size.") })).optional()
         .describe("REQUIRED whenever a Larkspur product appears. Ad Studio pulls each product's original photos fresh from the store, attaches them after your images, and adds its tech pack + construction rules to the prompt."),
       no_products: z.boolean().default(false).describe("Set true only when no Larkspur product appears in the image."),
-      catalog: z.boolean().optional().describe("Website catalog/product image (on automatically when the title or prompt says 'catalog'): the prompt asks for room around the person, and afterwards Ad Studio adds plain backdrop if needed so there is 12%+ empty space above the head and 10%+ below the feet — the store grid crops the edges. No AI cost for the padding."),
+      catalog: z.boolean().optional().describe("Website catalog/product image (on automatically when the title or prompt says 'catalog'): the prompt asks for Jose's reference framing — about 4% plain backdrop above the head and 5% below the feet, nothing cut off. The image is never padded or re-cropped afterwards."),
       allow_created_source: z.boolean().default(false).describe("Allow an image Ad Studio already made as a source. Only for zoomed catalog close-ups of an approved image the user asked for — garments still come from the fresh product photos. Never edit an edit: fixes and new versions are always a NEW image from the original photo."),
       title: z.string().max(120).optional(),
     },
@@ -688,11 +688,12 @@ function buildServer() {
       for (const d of j.data || []) {
         let bytes = Buffer.from(d.b64_json, "base64");
         let framing = null;
-        if (catalog) { try { const pr = await catalogPad(bytes); bytes = pr.bytes; framing = pr.note; padNotes.push(pr.note); } catch (e) { padNotes.push(`catalog framing skipped (${e.message})`); } }
+        // v1.19.1 — no automatic padding/zoom after generation: blending backdrop around the head made hair fade out (Jose, Nov 4).
+        // Catalog framing now comes only from the prompt; catalogPad stays available but is not applied automatically.
         const dm = await dims(bytes);
         ids.push(await saveImage({ kind: "edited", title, prompt, model: MODEL, size, quality, mime: "image/png", bytes, ...dm, parents: image_ids, meta: { usage: j.usage || null, mask_id: mask_id || null, input_fidelity, products: products || null, product_checks: checks, catalog: !!catalog, framing } }));
       }
-      if (padNotes.length) checks.push(...[...new Set(padNotes)]);
+      if (catalog) checks.push("catalog framing asked for in the prompt (~4% above head, ~5% below feet); no padding added afterwards");
       return resultFor(ids, `Edited → ${ids.length} image${ids.length === 1 ? "" : "s"} (${MODEL}${supportsFidelity(MODEL) ? `, fidelity ${input_fidelity}` : ""}).${checks.length ? `\nProduct failsafe: ${checks.join(" | ")}. Check the result against the tech pack before showing it.` : ""}`);
     } catch (e) { return { isError: true, content: [{ type: "text", text: e.message }] }; }
   });
