@@ -99,9 +99,14 @@ async function getImage(id) {
   if (pool) return (await db(`SELECT * FROM ad_images WHERE id=$1`, [id])).rows[0] || null;
   return mem.get(id) || null;
 }
-async function listImages(limit = 24, kind = null) {
-  if (pool) return (await db(`SELECT id, kind, title, prompt, model, size, quality, mime, width, height, parents, created_at, folder, favorite, sort_order, product_url, product_title, length(bytes) AS bytes_len FROM ad_images ${kind ? "WHERE kind=$2" : ""} ORDER BY created_at DESC LIMIT $1`, kind ? [limit, kind] : [limit])).rows;
-  return [...mem.values()].filter((r) => !kind || r.kind === kind).sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, limit).map((r) => ({ ...r, bytes: undefined, bytes_len: r.bytes.length }));
+async function listImages(limit = 24, kind = null, search = null) {
+  if (pool) {
+    const where = [], args = [limit];
+    if (kind) { args.push(kind); where.push(`kind=$${args.length}`); }
+    if (search) { args.push(`%${search}%`); where.push(`(title ILIKE $${args.length} OR product_title ILIKE $${args.length})`); }
+    return (await db(`SELECT id, kind, title, prompt, model, size, quality, mime, width, height, parents, created_at, folder, favorite, sort_order, product_url, product_title, length(bytes) AS bytes_len FROM ad_images ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY created_at DESC LIMIT $1`, args)).rows;
+  }
+  return [...mem.values()].filter((r) => (!kind || r.kind === kind) && (!search || `${r.title || ""} ${r.product_title || ""}`.toLowerCase().includes(String(search).toLowerCase()))).sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, limit).map((r) => ({ ...r, bytes: undefined, bytes_len: r.bytes.length }));
 }
 async function countSince(iso) {
   if (pool) return Number((await db(`SELECT count(*) FROM ad_images WHERE kind IN ('generated','edited') AND coalesce(model,'') NOT IN ('format','enhance','resize') AND created_at >= $1`, [iso])).rows[0].count);
@@ -785,9 +790,9 @@ function buildServer() {
   server.registerTool("list_images", {
     title: "List images",
     description: "Recent images in Ad Studio: uploads (photos the user added on the Ad Studio page), generations and edits. Returns ids, titles, prompts and URLs — no pixels. Use get_image to look at one.",
-    inputSchema: { limit: z.number().int().min(1).max(60).default(20), kind: z.enum(["upload", "generated", "edited"]).optional() },
-  }, async ({ limit, kind }) => {
-    const rows = await listImages(limit, kind || null);
+    inputSchema: { limit: z.number().int().min(1).max(60).default(20), kind: z.enum(["upload", "generated", "edited"]).optional(), search: z.string().max(120).optional().describe("Only images whose title or linked product contains this text (e.g. 'Sleep Bag Walker'), across all time — not just the most recent.") },
+  }, async ({ limit, kind, search }) => {
+    const rows = await listImages(limit, kind || null, search || null);
     if (!rows.length) return { content: [{ type: "text", text: "No images yet. Upload photos at the Ad Studio page or call generate_image." }] };
     const text = rows.map((r) => `${r.id}  [${r.kind}]${r.favorite ? " ★" : ""}${r.folder ? `  📁 ${r.folder}` : ""}${r.product_title ? `  🔗 ${r.product_title}` : ""}  ${r.title || (r.prompt ? r.prompt.slice(0, 70) : "")}  ${r.width || "?"}×${r.height || "?"}  ${new Date(r.created_at).toISOString().slice(0, 16).replace("T", " ")}  ${imageUrl(r.id, extOf(r.mime))}`).join("\n");
     return { content: [{ type: "text", text }] };
