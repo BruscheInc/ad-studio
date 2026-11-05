@@ -83,6 +83,7 @@ function specText(title, sizeWanted) {
   for (const p of spec.parts) for (const [l, v, flat] of p.rows) if (v[i] != null) meas.push(`${spec.parts.length > 1 ? p.part + " " : ""}${l}: ${flat ? `${Math.round(v[i] * 2)} cm all around` : `${v[i]} cm`}`);
   const lines = [`${title} — style "${spec.name}", tech pack size ${spec.sizes[i]} (sheet ${spec.sheet}). ${spec.note || ""}`,
     ...construction(spec.name, spec, i).map((x) => "• " + x),
+    `• ROOM TO GROW (all Larkspur products): sleeves reach all the way to the wrist (and legs to the ankle) with a little extra length, so the fabric stacks into a few soft natural wrinkles just above the wrist and ankle bands. The garment has real ease and shows natural soft wrinkles where the body bends (elbows, tummy, crotch, knees) — never smooth and stretched, never skin-tight, never short at the wrists or ankles, never baggy.`,
     `• Factory measurements (size ${spec.sizes[i]}), keep proportions true to these: ${meas.join("; ")}.`];
   return { style: spec.name, size: spec.sizes[i], text: lines.join("\n") };
 }
