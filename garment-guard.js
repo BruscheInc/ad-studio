@@ -32,9 +32,9 @@ function construction(style, spec, i) {
       return [
         `ZIPPER: exactly ONE zipper. It starts at the centre of the neckline, runs straight down the front, then continues down the WEARER'S OWN LEFT LEG to the top of the left ankle cuff (if the child faces the camera that is the leg on the RIGHT side of the image). The other leg has NO zipper. If the left leg is hidden, show no zipper on the visible leg.`,
         `ZIPPER GARAGE: a small soft fabric hood folded over the zipper head at the neck — no snap, no button.`,
-        `WRIST BANDS: only ${wrist} cm tall — a THIN strip at the very end of the sleeve, about the width of a fingertip, roughly ${Math.round(leg / wrist)}× shorter than the ankle cuffs. NOT a wide cuff.`,
+        `WRIST BANDS: only ${wrist} cm tall — a THIN strip at the very end of the sleeve, about the width of a fingertip, roughly ${Math.round(leg / wrist)}× shorter than the ankle cuffs. NOT a wide cuff. The band is FLAT and STRAIGHT, the same width as the sleeve end — the sleeve is NOT gathered, puckered or elasticated into it, no puff above it, no bunching.`,
         `ANKLE CUFFS: ${leg} cm tall smooth bands, snug around the lower shin to the ankle.${style === "Convertible One Piece" ? " They are long enough to fold over and cover the feet (shown unfolded unless asked)." : ""}`,
-        `No hand mitts${style === "Zipper Romper" ? ", no feet (bare feet show)" : ""}. Smooth crew-neck binding. No ribbing anywhere — smooth tightly knit bamboo. Comfortable fit, full length to wrists and ankles, never too small, never baggy.`,
+        `No hand mitts${style === "Zipper Romper" ? ", no feet (bare feet show)" : ""}. Smooth crew-neck binding. No ribbing anywhere — smooth tightly knit bamboo. Comfortable relaxed fit with real ease — the fabric skims the body with soft natural folds at the tummy, elbows and knees; never clinging, skin-tight or stretched over the body, never baggy. Full length to wrists and ankles, never too small.`,
       ];
     }
     case "Zipper Footie":
