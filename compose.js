@@ -335,6 +335,11 @@ function tornPath(w, h, seed = 5) {
   return d + " Z";
 }
 function shapeSvg(sh, w, h) {
+  if (sh.shape === "fade") { // smooth vertical (or horizontal) gradient overlay: color from opacity `from` to `to`
+    const c = col(sh.color || "#000000"), a = sh.from ?? 0, b = sh.to ?? 0.8, hz = sh.direction === "horizontal";
+    const stops = (sh.stops || [[0, a], [1, b]]).map(([o, op]) => `<stop offset="${o}" stop-color="${c}" stop-opacity="${op}"/>`).join("");
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><defs><linearGradient id="g" x1="0" y1="0" x2="${hz ? 1 : 0}" y2="${hz ? 0 : 1}">${stops}</linearGradient></defs><rect width="${w}" height="${h}" fill="url(#g)"/></svg>`;
+  }
   const fill = sh.color ? col(sh.color) : "none", stroke = sh.stroke ? col(sh.stroke) : "none", sw = sh.stroke_width || Math.max(3, Math.round(Math.min(w, h) * 0.02));
   let el;
   switch (sh.shape) {
