@@ -87,6 +87,6 @@ async function catalogPad(bytes) {
   return { bytes: png, changed: true, note: `catalog framing: added backdrop for the reference framing (~${Math.round(TOP * 100)}% above head${cropped ? "" : `, ~${Math.round(BOTTOM * 100)}% below feet`}) (was ${Math.round(topM * 100)}% / ${Math.round(botM * 100)}%)` };
 }
 
-const CATALOG_PROMPT = `\n\nCATALOG FRAMING (website product image — the store grid crops the edges): the person fills the frame: a small strip of plain backdrop above the head (about 4% of the frame height) and below the feet (about 5%), nothing cut off, centred left to right — like a classic e-commerce product shot.`;
+const CATALOG_PROMPT = `\n\nCATALOG FRAMING (very important — the store's product grid crops the edges): camera pulled back a little so there is a clear band of EMPTY plain backdrop above the top of the hair — about 8% of the image height (roughly the height of the face) — and a similar empty band of floor below the feet, about 8%. Hair must NOT touch or come near the top edge; feet must not be near the bottom edge. Centred left to right. (The model lands at about 4% / 5%, which matches Jose's reference.)`;
 
 module.exports = { catalogPad, CATALOG_PROMPT };
