@@ -16,8 +16,9 @@ async function catalogPad(bytes) {
     L[y * 3 + c] = a / S; R[y * 3 + c] = b / S;
   }
   // close-up / detail shot: the side strips are fabric, not plain backdrop (they change a lot from row to row)
-  let rough = 0; for (let y = 8; y < H; y++) for (let c = 0; c < 3; c++) rough += Math.abs(L[y * 3 + c] - L[(y - 8) * 3 + c]) + Math.abs(R[y * 3 + c] - R[(y - 8) * 3 + c]);
-  rough /= (H - 8) * 6;
+  const hf = (A, y, c) => Math.abs(A[y * 3 + c] - (A[(y - 8) * 3 + c] + A[(y + 8) * 3 + c]) / 2);   // ignores smooth wall→floor gradients
+  const rs = []; for (let y = 8; y < H - 8; y++) { let v = 0; for (let c = 0; c < 3; c++) v += hf(L, y, c) + hf(R, y, c); rs.push(v / 6); }
+  rs.sort((a, b) => a - b); const rough = rs[Math.floor(rs.length * 0.75)];   // most of the edge must be busy, not one shadow line
   if (rough > 0.5) return { bytes, changed: false, note: "catalog framing: close-up, left as is" };
   const bg = (x, y, c) => { const t = x / (W - 1); return L[y * 3 + c] * (1 - t) + R[y * 3 + c] * t; };
   // 2) where is the person? rows/cols with enough pixels that differ clearly from the backdrop
