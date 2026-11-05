@@ -209,13 +209,68 @@ async function deleteFolder(name) {
 }
 /* ---------------- product links (v1.6) ---------------- */
 const STORE_URL = (process.env.STORE_URL || "https://larkspurbaby.com").replace(/\/$/, "");
-/** Resolve a product page URL to { title, url, image, price } using the store's public .json endpoint. */
+
+/* ---------------- Shopify Admin API (v1.17): finds DRAFT / unpublished products the public store hides ----------------
+ * Uses the same Shopify app as Buzzin: SHOPIFY_STORES (JSON [{brand,domain,id,secret}]) via client-credentials. */
+const SHOP_VER = process.env.SHOPIFY_API_VERSION || "2025-07";
+const ADMIN_STORES = (() => {
+  const out = [];
+  try { for (const s of JSON.parse(process.env.SHOPIFY_STORES || "[]")) if (s.domain && s.id && s.secret) out.push({ brand: s.brand || s.domain, domain: s.domain, id: s.id, secret: s.secret, tok: { token: null, exp: 0 } }); }
+  catch (e) { console.error("SHOPIFY_STORES parse error:", e.message); }
+  return out;
+})();
+const adminStoreFor = (origin) => {
+  const outlet = /outlet/i.test(String(origin || ""));
+  return ADMIN_STORES.find((s) => /outlet/i.test(s.brand + s.domain) === outlet) || (outlet ? null : ADMIN_STORES[0]) || null;
+};
+async function adminGQL(st, query, variables) {
+  if (!st.tok.token || Date.now() > st.tok.exp) {
+    const r = await fetch(`https://${st.domain}/admin/oauth/access_token`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client_id: st.id, client_secret: st.secret, grant_type: "client_credentials" }) });
+    const j = await r.json(); if (!j.access_token) throw new Error(`Shopify admin login failed for ${st.brand}`);
+    st.tok = { token: j.access_token, exp: Date.now() + ((j.expires_in ? j.expires_in - 300 : 3600) * 1000) };
+  }
+  const r = await fetch(`https://${st.domain}/admin/api/${SHOP_VER}/graphql.json`, { method: "POST", headers: { "X-Shopify-Access-Token": st.tok.token, "Content-Type": "application/json" }, body: JSON.stringify({ query, variables }) });
+  const j = await r.json(); if (j.errors) throw new Error(`Shopify admin: ${JSON.stringify(j.errors).slice(0, 200)}`);
+  return j.data;
+}
+const ADMIN_FIELDS = `title handle status productType vendor tags descriptionHtml
+  images(first: 20) { nodes { url width height altText } }
+  variants(first: 30) { nodes { title price compareAtPrice availableForSale } }`;
+/** Turn an admin product into the same shape as the store's public /products/<handle>.json. */
+const adminToPublic = (p) => ({
+  title: p.title, handle: p.handle, status: p.status, product_type: p.productType, vendor: p.vendor, tags: p.tags, body_html: p.descriptionHtml,
+  images: p.images.nodes.map((i) => ({ src: i.url, width: i.width, height: i.height, alt: i.altText })),
+  image: p.images.nodes[0] ? { src: p.images.nodes[0].url } : null,
+  variants: p.variants.nodes.map((v) => ({ title: v.title, price: v.price, compare_at_price: v.compareAtPrice, available: v.availableForSale })),
+});
+async function adminProductByHandle(handle, origin) {
+  const st = adminStoreFor(origin); if (!st) return null;
+  const d = await adminGQL(st, `query($q:String!){ products(first:1, query:$q){ nodes{ ${ADMIN_FIELDS} } } }`, { q: `handle:${handle}` });
+  const p = d.products.nodes[0]; return p ? adminToPublic(p) : null;
+}
+async function adminProductByTitle(name, origin) {
+  const st = adminStoreFor(origin); if (!st) return null;
+  const words = [...tokens(name)]; if (!words.length) return null;
+  const d = await adminGQL(st, `query($q:String!){ products(first:50, query:$q){ nodes{ ${ADMIN_FIELDS} } } }`, { q: words.map((w) => `title:*${w}*`).join(" AND ") });
+  const list = d.products.nodes.map((p) => ({ ...p, toks: tokens(p.title) }));
+  const want = String(name).trim().toLowerCase();
+  const hit = list.find((p) => p.title.toLowerCase() === want) || matchProduct(name, list);
+  return hit ? adminToPublic(hit) : null;
+}
+/** Public product JSON first; if the store hides it (draft / unpublished → 404), read it from the Shopify admin. */
+async function productJson(url) {
+  const u = new URL(url); const handle = (u.pathname.match(/\/products\/([^\/?#]+)/) || [])[1];
+  const r = await fetch(`${u.origin}/products/${handle}.json`, { headers: { Accept: "application/json" } });
+  if (r.ok) return (await r.json()).product;
+  const p = await adminProductByHandle(handle, u.origin).catch(() => null);
+  if (p) return p;
+  throw new Error(`Store returned HTTP ${r.status} for ${u.origin}/products/${handle}${ADMIN_STORES.length ? " (and it isn't in the Shopify admin either)" : ""}`);
+}
+/** Resolve a product page URL to { title, url, image, price } (public .json, admin fallback for drafts). */
 async function resolveProduct(url) {
   const u = new URL(url); const m = u.pathname.match(/\/products\/([^\/?#]+)/);
   if (!m) throw new Error("That isn't a product link (expected …/products/<name>).");
-  const r = await fetch(`${u.origin}/products/${m[1]}.json`, { headers: { Accept: "application/json" } });
-  if (!r.ok) throw new Error(`The store returned HTTP ${r.status} for that product.`);
-  const p = (await r.json()).product;
+  const p = await productJson(url);
   return { title: p.title, url: `${u.origin}/products/${p.handle}`, image: p.image ? p.image.src : (p.images && p.images[0] && p.images[0].src) || null, price: (p.variants && p.variants[0] && p.variants[0].price) || null };
 }
 /* Auto-link: match an image to a store product from its parents or its name.
@@ -311,8 +366,12 @@ async function findStoreProduct(name) {
   const list = await loadCatalog();
   const exact = list.find((p) => p.title.toLowerCase() === String(name).trim().toLowerCase());
   const hit = exact || matchProduct(name, list);
-  if (!hit) throw new Error(`Couldn't find "${name}" in the store. Use the exact product title or paste its product link.`);
-  return hit.url;
+  if (hit) return hit.url;
+  // v1.17: drafts and unpublished products aren't in the public catalog — look in the Shopify admin.
+  const outlet = /outlet/i.test(String(name));
+  const ap = await adminProductByTitle(name, outlet ? "larkspurbabyoutlet.com" : STORE_URL).catch(() => null);
+  if (ap) return `${outlet ? "https://larkspurbabyoutlet.com" : STORE_URL}/products/${ap.handle}`;
+  throw new Error(`Couldn't find "${name}" in the store${ADMIN_STORES.length ? " or the Shopify admin (drafts included)" : ""}. Use the exact product title or paste its product link.`);
 }
 /** Pull the product's ORIGINAL photos fresh from the store (never our own "larkspur-baby-…" uploads) + its spec text. */
 async function freshProductRefs(products) {
@@ -320,9 +379,7 @@ async function freshProductRefs(products) {
   for (const pr of products) {
     const url = await findStoreProduct(pr.name);
     if (/larkspurbabyoutlet\.com/i.test(url)) outlet = true;
-    const r = await fetch(`${url}.json`, { headers: { Accept: "application/json" } });
-    if (!r.ok) throw new Error(`Store returned HTTP ${r.status} for ${url}`);
-    const p = (await r.json()).product;
+    const p = await productJson(url);
     const originals = (p.images || []).map((i) => i.src).filter((src) => !guard.isAiName(src.split("?")[0].split("/").pop()));
     let got = 0, from = "pulled fresh";
     for (const src of originals.slice(0, 2)) {
@@ -640,16 +697,14 @@ function buildServer() {
     try {
       const u = new URL(url); const m = u.pathname.match(/\/products\/([^\/?#]+)/);
       if (!m) return { isError: true, content: [{ type: "text", text: "That isn't a product URL (expected /products/<handle>)." }] };
-      const r = await fetch(`${u.origin}/products/${m[1]}.json`, { headers: { Accept: "application/json" } });
-      if (!r.ok) return { isError: true, content: [{ type: "text", text: `Store returned HTTP ${r.status} for ${u.origin}/products/${m[1]}.json` }] };
-      const p = (await r.json()).product;
+      const p = await productJson(url);
       const v0 = (p.variants || [])[0] || {};
       const desc = String(p.body_html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 600);
       const out = {
         title: p.title, handle: p.handle, product_type: p.product_type, vendor: p.vendor, store: u.hostname,
         price: v0.price, compare_at_price: v0.compare_at_price,
         variants: (p.variants || []).map((v) => ({ title: v.title, price: v.price, compare_at_price: v.compare_at_price, available: v.available })),
-        tags: p.tags, description: desc,
+        tags: p.tags, description: desc, ...(p.status && p.status !== "ACTIVE" ? { status: p.status.toLowerCase() } : {}),
         images: (p.images || []).map((i) => ({ src: i.src.split("?")[0], width: i.width, height: i.height, alt: i.alt })),
         url: `${u.origin}/products/${p.handle}`,
       };
