@@ -4,7 +4,9 @@
  * outward. The person is never repainted or cropped — only backdrop is added. No AI cost. */
 const sharp = require("sharp");
 
-const TOP = 0.12, BOTTOM = 0.10;   // minimum empty backdrop above the head / below the feet (fraction of height)
+// Jose's reference catalog image (Nov 4 2026): about 4% empty backdrop above the head and 5% below the feet.
+const TOP = 0.04, BOTTOM = 0.05;
+const OK_TOP = [0.03, 0.065], OK_BOTTOM = [0.035, 0.075];   // close enough → leave the image as it is
 
 async function catalogPad(bytes) {
   const { data, info } = await sharp(bytes).removeAlpha().raw().toBuffer({ resolveWithObject: true });
@@ -32,15 +34,29 @@ async function catalogPad(bytes) {
   let bot = H - 1; while (bot > 0 && rowHits[bot] < minHits) bot--;
   if (top >= bot) return { bytes, changed: false, note: "catalog framing: no person found, left as is" };
   const topM = top / H, botM = (H - 1 - bot) / H;
-  // cropped shot (body runs off the bottom, e.g. knees-up) → only add room above the head, keep the bottom edge where it is
-  const cropped = botM < 0.015;
-  if (cropped && topM >= TOP - 0.01) return { bytes, changed: false, note: `catalog framing OK (${Math.round(topM * 100)}% above head, cropped shot)` };
-  if (!cropped && topM >= TOP - 0.01 && botM >= BOTTOM - 0.01) return { bytes, changed: false, note: `catalog framing OK (${Math.round(topM * 100)}% above head, ${Math.round(botM * 100)}% below feet)` };
-  // 3) scale so the person fits between the margins, centred on the person
+  const cropped = botM < 0.015;   // body runs off the bottom (knees-up etc.) → only the head room matters
+  const okTop = topM >= OK_TOP[0] && topM <= OK_TOP[1], okBot = cropped || (botM >= OK_BOTTOM[0] && botM <= OK_BOTTOM[1]);
+  if (okTop && okBot) return { bytes, changed: false, note: `catalog framing OK (${Math.round(topM * 100)}% above head${cropped ? ", cropped shot" : `, ${Math.round(botM * 100)}% below feet`})` };
+  const tooMuchRoom = topM > OK_TOP[1] && (cropped || botM > OK_BOTTOM[0]);
+  if (tooMuchRoom) {
+    // zoom in: crop a square so the margins land on the reference, centred on the person
+    let left = W, right = 0; for (let y = top; y <= bot; y++) for (let x = S; x < W - S; x++) if (mask[y * W + x]) { if (x < left) left = x; if (x > right) right = x; }
+    let C = cropped ? (H - top) / (1 - TOP) : (bot - top + 1) / (1 - TOP - BOTTOM);
+    C = Math.min(W, H, Math.round(C));
+    let cy = cropped ? H - C : Math.round(top - TOP * C);
+    let cx = Math.round((left + right) / 2 - C / 2);
+    cy = Math.max(0, Math.min(H - C, cy)); cx = Math.max(0, Math.min(W - C, cx));
+    if (C < W * 0.97) {
+      const out = await sharp(bytes).extract({ left: cx, top: cy, width: C, height: C }).resize(W, H, { kernel: "lanczos3" }).png().toBuffer();
+      return { bytes: out, changed: true, note: `catalog framing: zoomed in to the reference framing (~${Math.round(TOP * 100)}% above head${cropped ? "" : `, ~${Math.round(BOTTOM * 100)}% below feet`}; was ${Math.round(topM * 100)}% / ${Math.round(botM * 100)}%)` };
+    }
+  }
+  if (topM >= OK_TOP[0] && (cropped || botM >= OK_BOTTOM[0])) return { bytes, changed: false, note: `catalog framing left as is (${Math.round(topM * 100)}% / ${Math.round(botM * 100)}%)` };
+  // too tight → shrink the photo and continue its own backdrop outward
   const s = cropped ? Math.min(1, (H * (1 - TOP)) / (H - top)) : Math.min(1, (H * (1 - TOP - BOTTOM)) / (bot - top + 1));
   const w = Math.round(W * s), h = Math.round(H * s);
   const x0 = Math.round((W - w) / 2);
-  let y0 = cropped ? H - h : Math.round(H * TOP - top * s);       // cropped: bottom edge stays put; else head lands at the top margin…
+  let y0 = cropped ? H - h : Math.round(H * TOP - top * s);
   if (!cropped) { const freeBelow = H - (y0 + bot * s); if (freeBelow < H * BOTTOM) y0 -= Math.round(H * BOTTOM - freeBelow); }
   // dilated, softened person mask so hair edges stay solid
   const m8 = Buffer.alloc(W * H); for (let i = 0; i < W * H; i++) m8[i] = mask[i] ? 255 : 0;
@@ -68,9 +84,9 @@ async function catalogPad(bytes) {
     }
   }
   const png = await sharp(out, { raw: { width: W, height: H, channels: 3 } }).png().toBuffer();
-  return { bytes: png, changed: true, note: `catalog framing: added backdrop so the head has ${Math.round(TOP * 100)}%+ room above${cropped ? "" : ` and the feet ${Math.round(BOTTOM * 100)}%+ below`} (was ${Math.round(topM * 100)}% / ${Math.round(botM * 100)}%)` };
+  return { bytes: png, changed: true, note: `catalog framing: added backdrop for the reference framing (~${Math.round(TOP * 100)}% above head${cropped ? "" : `, ~${Math.round(BOTTOM * 100)}% below feet`}) (was ${Math.round(topM * 100)}% / ${Math.round(botM * 100)}%)` };
 }
 
-const CATALOG_PROMPT = `\n\nCATALOG FRAMING (website product image — the store grid crops the edges): leave generous plain backdrop around the person. The top of the head sits about 12–15% of the frame height below the top edge and the feet end about 10–12% above the bottom edge; nothing is cut off. Centre the person left to right.`;
+const CATALOG_PROMPT = `\n\nCATALOG FRAMING (website product image — the store grid crops the edges): the person fills the frame: a small strip of plain backdrop above the head (about 4% of the frame height) and below the feet (about 5%), nothing cut off, centred left to right — like a classic e-commerce product shot.`;
 
 module.exports = { catalogPad, CATALOG_PROMPT };
