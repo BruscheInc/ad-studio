@@ -40,6 +40,7 @@ const { enhance, hasAIUpscaler } = require("./enhance.js");
 const sharp = require("sharp");
 const { PRESETS, LOGOS, resizeImage, sizeSlug } = require("./social.js");
 const guard = require("./garment-guard.js");
+const { catalogPad, CATALOG_PROMPT } = require("./catalog-pad.js");
 const { composeEmail, COLORS } = require("./compose.js");
 const playbook = require("./playbook.js");
 const meta = require("./meta.js");
@@ -620,10 +621,11 @@ function buildServer() {
       products: z.array(z.object({ name: z.string().describe("Exact store product title (e.g. 'Zipper Romper in Twinkle Night') or its product link."), size: z.string().optional().describe("Tech-pack size to show, e.g. '12-18M', 'M'. Default: middle size.") })).optional()
         .describe("REQUIRED whenever a Larkspur product appears. Ad Studio pulls each product's original photos fresh from the store, attaches them after your images, and adds its tech pack + construction rules to the prompt."),
       no_products: z.boolean().default(false).describe("Set true only when no Larkspur product appears in the image."),
+      catalog: z.boolean().optional().describe("Website catalog/product image (on automatically when the title or prompt says 'catalog'): the prompt asks for room around the person, and afterwards Ad Studio adds plain backdrop if needed so there is 12%+ empty space above the head and 10%+ below the feet — the store grid crops the edges. No AI cost for the padding."),
       allow_created_source: z.boolean().default(false).describe("Allow an image Ad Studio already made as a source. Only for zoomed catalog close-ups of an approved image the user asked for — garments still come from the fresh product photos. Never edit an edit: fixes and new versions are always a NEW image from the original photo."),
       title: z.string().max(120).optional(),
     },
-  }, async ({ prompt, image_ids, mask_id, size, quality, n, input_fidelity, products, no_products, allow_created_source, title }) => {
+  }, async ({ prompt, image_ids, mask_id, size, quality, n, input_fidelity, products, no_products, catalog, allow_created_source, title }) => {
     // Clients with an older tool list can reach compose_email through edit_image: prompt = "COMPOSE EMAIL" + JSON spec. No AI cost.
     if (/^\s*EXPORT FILE\s*$/i.test(prompt || "")) return exportFile(image_ids[0]);
     const sa = /^\s*SAVE ADS?\s*([\s\S]*)$/i.exec(prompt || "");      // older clients: prompt "SAVE AD" + JSON object or array
@@ -646,6 +648,8 @@ function buildServer() {
       if (pm && !(products && products.length)) products = pm[1].split("|").map((x) => x.trim()).filter(Boolean).map((x) => { const [name, size] = x.split("@").map((y) => y.trim()); return { name, size: size || undefined }; });
       if (/^\s*NO PRODUCTS\s*$/im.test(prompt)) no_products = true;
       if (/^\s*ALLOW CREATED SOURCE\s*$/im.test(prompt)) allow_created_source = true;
+      // v1.18 — catalog images get head/foot room (the website grid crops them). Close-ups (allow_created_source) are left alone.
+      if (catalog === undefined) catalog = !allow_created_source && /catalog/i.test(`${title || ""} ${prompt}`);
       const cm2 = prompt.match(/^\s*CONCEPT:\s*([\w-]+)\s*$/im);
       prompt = prompt.replace(/^\s*(PRODUCTS:.*|NO PRODUCTS|ALLOW CREATED SOURCE|CONCEPT:.*)\s*$/gim, "").trim();
       if (cm2) { const blk = playbook.conceptBlock(cm2[1]); if (!blk) throw new Error(`Unknown concept "${cm2[1]}". Options: ${playbook.CONCEPTS.map((c) => c.key).join(", ")}`); prompt += blk; }
@@ -674,16 +678,21 @@ function buildServer() {
         // v1.16 — every Outlet image is 1:1 (Jose, Nov 2026)
         if (fresh.outlet || /outlet/i.test(title || "")) { const m = /^(\d+)x(\d+)$/.exec(size || ""); if (!m || m[1] !== m[2]) { size = "2048x2048"; checks.push("Outlet image → forced to 1:1 (2048×2048)"); } }
       }
+      if (catalog) prompt += CATALOG_PROMPT;
       await guardBudget(n);
       const mask = mask_id ? await getImage(mask_id) : null;
       if (mask_id && !mask) throw new Error(`No mask with id ${mask_id}.`);
       const j = await openaiEdit({ prompt, images, mask, size, quality, n, inputFidelity: input_fidelity });
       const ids = [];
+      const padNotes = [];
       for (const d of j.data || []) {
-        const bytes = Buffer.from(d.b64_json, "base64");
+        let bytes = Buffer.from(d.b64_json, "base64");
+        let framing = null;
+        if (catalog) { try { const pr = await catalogPad(bytes); bytes = pr.bytes; framing = pr.note; padNotes.push(pr.note); } catch (e) { padNotes.push(`catalog framing skipped (${e.message})`); } }
         const dm = await dims(bytes);
-        ids.push(await saveImage({ kind: "edited", title, prompt, model: MODEL, size, quality, mime: "image/png", bytes, ...dm, parents: image_ids, meta: { usage: j.usage || null, mask_id: mask_id || null, input_fidelity, products: products || null, product_checks: checks } }));
+        ids.push(await saveImage({ kind: "edited", title, prompt, model: MODEL, size, quality, mime: "image/png", bytes, ...dm, parents: image_ids, meta: { usage: j.usage || null, mask_id: mask_id || null, input_fidelity, products: products || null, product_checks: checks, catalog: !!catalog, framing } }));
       }
+      if (padNotes.length) checks.push(...[...new Set(padNotes)]);
       return resultFor(ids, `Edited → ${ids.length} image${ids.length === 1 ? "" : "s"} (${MODEL}${supportsFidelity(MODEL) ? `, fidelity ${input_fidelity}` : ""}).${checks.length ? `\nProduct failsafe: ${checks.join(" | ")}. Check the result against the tech pack before showing it.` : ""}`);
     } catch (e) { return { isError: true, content: [{ type: "text", text: e.message }] }; }
   });
