@@ -648,8 +648,8 @@ function buildServer() {
       if (pm && !(products && products.length)) products = pm[1].split("|").map((x) => x.trim()).filter(Boolean).map((x) => { const [name, size] = x.split("@").map((y) => y.trim()); return { name, size: size || undefined }; });
       if (/^\s*NO PRODUCTS\s*$/im.test(prompt)) no_products = true;
       if (/^\s*ALLOW CREATED SOURCE\s*$/im.test(prompt)) allow_created_source = true;
-      // v1.18 — catalog images get head/foot room (the website grid crops them). Close-ups (allow_created_source) are left alone.
-      if (catalog === undefined) catalog = !allow_created_source && /catalog/i.test(`${title || ""} ${prompt}`);
+      // v1.18 — catalog images get head/foot room (the website grid crops them).
+      if (catalog === undefined) catalog = /catalog/i.test(`${title || ""} ${prompt}`);   // close-ups are detected and left alone
       const cm2 = prompt.match(/^\s*CONCEPT:\s*([\w-]+)\s*$/im);
       prompt = prompt.replace(/^\s*(PRODUCTS:.*|NO PRODUCTS|ALLOW CREATED SOURCE|CONCEPT:.*)\s*$/gim, "").trim();
       if (cm2) { const blk = playbook.conceptBlock(cm2[1]); if (!blk) throw new Error(`Unknown concept "${cm2[1]}". Options: ${playbook.CONCEPTS.map((c) => c.key).join(", ")}`); prompt += blk; }
