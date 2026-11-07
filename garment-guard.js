@@ -39,7 +39,7 @@ function construction(style, spec, i) {
     }
     case "Zipper Footie":
       return [
-        `ZIPPER: one zipper from the centre of the neck down the front and down the WEARER'S OWN LEFT LEG to the left foot; zipper garage = small soft fabric hood, no snap, no button.`,
+        `ZIPPER: one zipper from the centre of the neck straight down the front to the crotch, then it turns and runs down the INSIDE of the WEARER'S OWN LEFT LEG (the inseam, facing the other leg) to the left foot — never down the outside of the leg; zipper garage = small soft fabric hood, no snap, no button.`,
         `SLEEVE ENDS (from Jose's real product photo): the fold-over mitten is folded back and hidden, so each sleeve ends in a SLIM flat fold-over flap at the wrist — only about 1–1.5 cm deep, the same smooth fabric as the sleeve, edged with ONE fine tonal stitch line, lying flat and snug with the hand fully out. LEFT and RIGHT sleeves are IDENTICAL (same depth, same fold, same stitching). NEVER a wide band, a ribbed/sweatshirt cuff, a bulky doubled cuff, a visible mitten, or two different cuff styles. A curved crotch gusset seam; a fold-over foot cuff on each leg (one subtle seam around the lower leg a few cm above the ankle). All stitching subtle and tonal. Feet natural full size, exactly two.`,
         `No ribbing. Close, comfortable fit, never too small.`,
       ];
