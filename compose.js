@@ -23,6 +23,16 @@ const FONTS = {
   typewriter: { file: path.join(FONT_DIR, "SpecialElite.ttf"), family: "Special Elite" },
 };
 const LOGO_DIR = path.join(__dirname, "brand");
+/** Logo file for a variant: Larkspur primary SVGs ("dark-navy", "light-white", …) or the Outlet logo ("outlet-dark-navy"). */
+async function logoFile(variant) {
+  const v = variant || "dark-navy";
+  const tries = v.startsWith("outlet-") ? [`larkspur-${v}.png`, `larkspur-${v}.svg`] : [`larkspur-primary-${v}.svg`];
+  for (const f of tries) {
+    const file = path.join(LOGO_DIR, f);
+    if (fs.existsSync(file)) { const m = await sharp(file).metadata(); return { file, ratio: f.startsWith("larkspur-primary-") ? 5 : m.width / m.height }; }
+  }
+  throw new Error(`Unknown logo "${v}". Use dark-navy, light-white, … or outlet-dark-navy.`);
+}
 
 /* Larkspur-friendly palette names the caller can use instead of hex. */
 const COLORS = {
@@ -480,9 +490,8 @@ async function canvasItem(it, W, getBytes) {
       return { buf: await sharp({ create: { width: TW, height: TH, channels: 4, background: transparent } }).composite(lineOut.map((l, i) => ({ input: l.buf, left: Math.round((TW - l.w) / 2), top: i * step }))).png().toBuffer(), shadow: it.shadow !== false };
     }
     case "logo": {
-      const variant = it.variant || "dark-navy", file = path.join(LOGO_DIR, `larkspur-primary-${variant}.svg`);
-      if (!fs.existsSync(file)) throw new Error(`Unknown logo "${variant}".`);
-      const lw = X(it.w || 0.26), lh = Math.round(lw / 5);
+      const { file, ratio } = await logoFile(it.variant);
+      const lw = X(it.w || 0.26), lh = Math.round(lw / ratio);
       return { buf: await sharp(file, { density: 600 }).resize(lw, lh).png().toBuffer() };
     }
     default: throw new Error(`Unknown canvas item kind "${it.kind}".`);
@@ -523,10 +532,8 @@ async function renderBlock(b, W, S, getBytes) {
       return sharp(await solid(W, H, b.bg || "navy")).composite([{ input: t.buf, left: Math.round((W - t.w) / 2), top: Math.round((H - t.h) / 2) }]).png().toBuffer();
     }
     case "logo": {
-      const variant = b.variant || "dark-navy";
-      const file = path.join(LOGO_DIR, `larkspur-primary-${variant}.svg`);
-      if (!fs.existsSync(file)) throw new Error(`Unknown logo "${variant}".`);
-      const lw = Math.round((b.width || 0.36) * W), lh = Math.round(lw / 5);
+      const { file, ratio } = await logoFile(b.variant);
+      const lw = Math.round((b.width || 0.36) * W), lh = Math.round(lw / ratio);
       const logo = await sharp(file, { density: 600 }).resize(lw, lh).png().toBuffer();
       const pad = Math.round((b.pad ?? 0.04) * S), H = lh + pad * 2;
       const under = b.decor ? [{ input: decorSvg(W, H, b.decor, { color: col(b.decor_color, "#FFFFFF"), accent: col(b.decor_accent, COLORS.gold), density: b.decor_density || 1, seed: 9, avoid: { x0: (W - lw) / 2 - 20, x1: (W + lw) / 2 + 20, y0: pad - 20, y1: pad + lh + 20 } }), left: 0, top: 0 }] : [];

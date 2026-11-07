@@ -841,7 +841,7 @@ function buildServer() {
     description: `Build an email section the way real brand emails are made: existing photos placed in a clean layout with REAL fonts, buttons, colour panels and small hand-written callouts set in code — no AI generation, no cost. Use this for email pages instead of asking edit_image to paint headlines, stickers, doodles or buttons into a photo (that reads as AI). Photos should be clean shots with NO text in them. Width defaults to 1800; give height to pad/trim to an exact size (the result says the natural height so you can tune photo heights).
 Blocks are stacked top to bottom. Every size scales with the width. Colours: hex or ${Object.keys(COLORS).join(", ")}.
 • {type:"bar", text, bg?, color?} — thin promo strip.
-• {type:"logo", variant?:"dark-navy", width?:0.36, bg?} — Larkspur logo row.
+• {type:"logo", variant?:"dark-navy" (or "outlet-dark-navy" for the Larkspur Outlet logo — use it on Outlet emails), width?:0.36, bg?} — Larkspur logo row.
 • {type:"text", eyebrow?, script?, headline?, body?, button?|buttons?, bg?, color?, headline_size?:0.072} — centred copy panel; "\\n" breaks lines; script = small hand-written line above the headline.
 • {type:"wave", from, to, height?:0.06, style?:"wave"|"scallop"|"cloud", line?:colour} — divider between two colour bands (scallop = row of bumps, cloud = puffy edge, line = thin wavy accent).
 • Playful/holiday options: photo shape:"rounded"(with radius e.g. 0.045)|"arch"|"circle"|"scallop"|"wave-bottom"|"wave-top"|"wave-both", ring:colour (thin outline); photo snow:"snow"|"sparkles"|"both"; decor:"snow"|"sparkles"|"both" on text, logo, photo, collage blocks; script_font:"script"(default)|"hand". Extra colours: ice, frost, cranberry, evergreen, snow.
