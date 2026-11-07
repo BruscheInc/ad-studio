@@ -25,6 +25,8 @@ const FABRIC_RULE = `FABRIC: Larkspur pajamas are smooth MATTE knit jersey (bamb
 /* Kids never hold still: every real kids' photo has flaws. Added to every concept so nothing looks "too perfect". */
 const IMPERFECT = `IMPERFECT ON PURPOSE — this is one lucky frame out of many, not a perfect one: NO motion blur (it looks tacky) — catch the moment sharp, like a fast shutter; focus lands on one face and the other child is slightly soft; messy hair, flyaways, rumpled or twisted pajamas, a sleeve pushed up; one kid not smiling, looking away or mid-blink; slightly tilted, a bit-too-tight framing with things cut off at the edges; a blurred object in the near foreground for depth; light a little flat and underexposed with unfilled shadows and darker corners; muted, low-contrast colour with fine grain or phone noise; no sharpening, glow or HDR. The print reads as real fabric — softened by folds, wrinkles and shadow, never crisp and flat.
 ${FABRIC_RULE}`;
+/* How Little Sleepies' babies read as real (review of their Instagram feed, Nov 2026). Added to every concept prompt. */
+const REAL_BABY = `REAL BABY (Little Sleepies style): the baby's expression is curious, neutral or a little serious — mouth slightly open, brow a touch furrowed, eyes looking up or off to the side, NOT at the camera. Smiles only come from a real interaction (a parent, a sibling) and stay soft — never a posed grin at the lens, never a big open-mouth laugh. Real baby proportions: big head, chubby cheeks and a little double chin, wrist and thigh rolls, chubby feet with toes splayed, wispy uneven hair or cowlicks, headbands a bit crooked. Real matte skin with a little redness — not airbrushed, not glowing, not doll-like, slightly asymmetrical face. Baby poses only: slumped sitting with feet turned in, mid-crawl, reaching, lying on the back grabbing feet, squished against a sibling — hands a bit awkward, nothing symmetrical. The garment is worn like a baby wears it: slightly roomy, bunching a little at wrists and ankles, soft creases at elbows, knees and crotch. Two settings only: (1) studio — plain white or light-grey seamless or a white duvet, soft even neutral light from one side, gentle shadow, slightly cool white balance, no props or one simple lovey; or (2) real home snapshot — couch, bed or floor, everyday daylight, phone-camera feel. No golden haze, no styled knit-sweater-and-bedding sets, no moody depth of field.`;
 const NEVER = `NEVER — no back/rear-facing shots of kids; no text, letters, logos, stickers or doodles painted into the picture; no flying feathers, confetti or staged action; no everyone-laughing-at-once; no glossy studio glow, airbrushed skin, HDR look or boosted saturation; no perfect symmetrical posing; no stock "pretty brunette mom" face.`;
 
 const CONCEPTS = [
@@ -94,7 +96,7 @@ const BY_KEY = Object.fromEntries(CONCEPTS.map((c) => [c.key, c]));
 function conceptBlock(key) {
   const c = BY_KEY[String(key || "").trim().toLowerCase()];
   if (!c) return null;
-  return `\n\nCREATIVE CONCEPT "${c.key}" (${c.intent} funnel) — the picture must make the viewer feel: ${c.emotion}.\nSCENE: ${c.scene}\n${REAL_LOOK[c.look]}\n${IMPERFECT}\n${NEVER}`;
+  return `\n\nCREATIVE CONCEPT "${c.key}" (${c.intent} funnel) — the picture must make the viewer feel: ${c.emotion}.\nSCENE: ${c.scene}\n${REAL_LOOK[c.look]}\n${IMPERFECT}\n${REAL_BABY}\n${NEVER}`;
 }
 
 /** Plain-text playbook for the ad_playbook tool. */
@@ -102,7 +104,7 @@ function playbookText(intent) {
   const list = CONCEPTS.filter((c) => !intent || c.intent === intent);
   const head = `Ad Studio creative playbook (from Little Sleepies, Posh Peanut and Kyte Baby top ads). Rules for every ad:
 • One emotion per ad, carried by the picture. No text painted on photos; put words in Meta's primary text/headline (or set them with compose_email when a layout is needed).
-• Imperfect beats perfect (but no motion blur — it looks tacky): soft focus on one kid, messy hair, rumpled PJs, flat light, grain — a real frame, not a flawless render.\n• Real life beats studio: a parent's phone in a real home, daylight, real tree, real couch. Imperfect framing is fine.
+• Imperfect beats perfect (but no motion blur — it looks tacky): soft focus on one kid, messy hair, rumpled PJs, flat light, grain — a real frame, not a flawless render.\n• Real life beats studio: a parent's phone in a real home, daylight, real tree, real couch. Imperfect framing is fine.\n• Babies like Little Sleepies: curious or serious look off-camera, soft smiles only from real interaction, real chubby proportions, baby poses, clothes slightly roomy. Studio = plain white/grey seamless with soft neutral light; home = everyday daylight snapshot.
 • Cover the funnel: soft (stop the scroll with a feeling) → mid (make them want to touch it) → purchase (clear product + reason to buy now).
 • Copy: one short line + 1 emoji; headline 3–6 words, a light pun is welcome ("A Little Stripe. A Lot of Christmas."). Name the print/collection.
 • Run 3–4 versions of each concept (different crops/moments) so Meta can rotate.
@@ -111,4 +113,4 @@ To use a concept: edit_image with an original product photo, a "PRODUCTS: …" l
   return head + "\n" + body;
 }
 
-module.exports = { CONCEPTS, REAL_LOOK, IMPERFECT, NEVER, FABRIC: FABRIC_RULE, conceptBlock, playbookText };
+module.exports = { CONCEPTS, REAL_LOOK, IMPERFECT, REAL_BABY, NEVER, FABRIC: FABRIC_RULE, conceptBlock, playbookText };
